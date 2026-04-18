@@ -47,7 +47,7 @@ class LLMConfig:
     max_output_tokens: int = 4096
 
     # Temperature: thấp = consistent, cao = creative
-    # Forensics cần consistency → dùng thấp
+    # Forensics cần consistency -> dùng thấp
     temperature: float = 0.1
 
     # Số lần retry khi API lỗi
@@ -55,7 +55,7 @@ class LLMConfig:
     retry_delay: float = 2.0
 
     # Kích thước tối đa của input chunk gửi vào LLM (characters)
-    # Gemini 2.5 Pro có context window 1M token → rất thoải mái
+    # Gemini 2.5 Pro có context window 1M token -> rất thoải mái
     max_input_chars: int = 500_000
 
 
@@ -142,8 +142,8 @@ class GeminiClient:
         api_key = self.cfg.api_key or os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ValueError(
-                "Cần GEMINI_API_KEY. Set bằng:\n"
-                "  export GEMINI_API_KEY='AIzaSyAlOzAz40-nhDG71GjPIgDeb2alHD8ENY4'\n"
+                "Set bằng:\n"
+                "  export GEMINI_API_KEY='your-key'\n"
                 "  hoặc truyền vào LLMConfig(api_key='...')"
             )
 
@@ -184,7 +184,7 @@ class GeminiClient:
 
 class TextRestorer:
     """
-    Nhận noisy memory chunks → gọi LLM → trả về reconstructed text.
+    Nhận noisy memory chunks -> gọi LLM -> trả về reconstructed text.
     Tương ứng với Task A trong Stage 2 của RAM-Weaver.
     """
 
@@ -325,7 +325,7 @@ class ForensicQueryEngine:
 
         while True:
             try:
-                query = input("🔍 Query: ").strip()
+                query = input("Query: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nKết thúc session.")
                 break
@@ -337,10 +337,10 @@ class ForensicQueryEngine:
             if not query:
                 continue
 
-            print("\n⏳ Đang phân tích...\n")
+            print("\nDang phan tich...\n")
             try:
                 answer = self.query(query)
-                print("📋 Kết quả:")
+                print("Ket qua:")
                 print("-" * 40)
                 print(answer)
                 print("-" * 40 + "\n")
@@ -348,7 +348,7 @@ class ForensicQueryEngine:
                 history.append({"query": query, "answer": answer})
 
             except Exception as e:
-                print(f"❌ Lỗi: {e}\n")
+                print(f"Loi: {e}\n")
 
         # Lưu history
         if history:
@@ -424,7 +424,7 @@ if __name__ == "__main__":
     # Kiểm tra API key
     if not os.environ.get("GEMINI_API_KEY"):
         print("Cần set GEMINI_API_KEY:")
-        print("  export GEMINI_API_KEY='AIzaSyAlOzAz40-nhDG71GjPIgDeb2alHD8ENY4'")
+        print("  export GEMINI_API_KEY='your-key'")
         sys.exit(1)
 
     if len(sys.argv) < 2:
@@ -445,7 +445,7 @@ if __name__ == "__main__":
 
     if mode == "restore":
         results = reconstructor.run_restoration(chunks_file)
-        print(f"\n✓ Restored {len(results)} messages")
+        print(f"\nRestored {len(results)} messages")
 
     elif mode == "query":
         query = sys.argv[3] if len(sys.argv) > 3 else "List all messages in chronological order"

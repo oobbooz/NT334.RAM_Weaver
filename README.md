@@ -1,128 +1,135 @@
 ## Kiến trúc
 
 ```
-[Windows 10 VM]                    [Host Machine]
-LINE Messenger                         │
-     │                                 │
-     ▼                                 │
-WinPmem/DumpIt ──► memory.raw ────────►│
-                                       │
-                              [Stage 1: AMC]
-                         AdaptiveMemoryCarver
-                              │
-                              ├─ AdaptiveMemoryExtractor
-                              │    ├─ Heap Mode (PEB → VAD heaps)
-                              │    └─ PrivateMemory Mode (VAD tree)
-                              │
-                              └─ ArtifactFilter
-                                   ├─ Regex-based Filter (noise removal)
-                                   └─ JSON-like Pattern Filter
-                                       (giữ: text, from, to, createdTime...)
+[Windows VM]                         [Host phân tích (Windows/Kali/WSL)]
+LINE Messenger                               │
+     │                                        │
+     ▼                                        │
+WinPmem/ProcDump ──► memory.raw / line.dmp ─►│
+                                              │
+                                   [Stage 1: AMC]
+                                 AdaptiveMemoryCarver
+                                              │
+                                              ├─ AdaptiveMemoryExtractor
+                                              │    ├─ Heap Mode
+                                              │    └─ PrivateMemory Mode
+                                              │
+                                              └─ ArtifactFilter
+                                                   ├─ Regex filter
+                                                   └─ JSON-like filter
 
-                              [Stage 2: LLM]
-                              │
-                              ├─ Task A: Text Restoration (EMR/CER)
-                              └─ Task B: Forensic Querying (interactive)
+                                   [Stage 2: LLM]
+                                              ├─ Restore
+                                              └─ Forensic Query
 ```
 
 ---
 
 ## Setup
 
-### 1. Cài đặt dependencies (Host Machine)
+### 1) Cài dependency (Host phân tích)
 
 ```bash
-
-# Volatility3
 pip install volatility3
-# Kiểm tra: vol --help
 ```
 
-### 2. Chuẩn bị Windows VM
+### 2) Chuẩn bị `.env`
 
-```
-VM: Windows 10 x64
-- Cài LINE Messenger v9.9.0.3633 
-- Tai WinPmem
-- Shared folder giữa VM và host để chuyển dump file
-```
+Tạo/chỉnh file `.env`, sau đó điền giá trị thật:
 
-### 3. Set API Key
+- `PYTHON_BIN`: Python dùng cho script pipeline.
+- `RAM_WEAVER_DUMP_PATH`: đường dẫn file dump mặc định.
+- `RAM_WEAVER_PID`: PID mặc định của process mục tiêu (nếu dùng process dump).
+- `RAM_WEAVER_MODE`: mode mặc định (`restore`, `query`, `interactive`).
+- `RAM_WEAVER_VOL_PATH`: đường dẫn `vol.py` của Volatility3.
+- `RAM_WEAVER_PYTHON`: Python dùng riêng cho AMC.
+- `RAM_WEAVER_VAD_DUMP_DIR`: thư mục dump VAD tạm.
+- `RAM_WEAVER_OUTPUT_DIR`: thư mục output AMC.
+- `RAM_WEAVER_EXTRACTION_MODE`: `auto`, `heap`, `private_memory`.
+- `RAM_WEAVER_GEMINI_MODEL`: ví dụ `gemini-2.5-flash`.
+- `GEMINI_API_KEY`: API key Gemini.
 
-```bash
-export GEMINI_API_KEY="your-gemini-api-key-here"
-
-# Hoặc tạo file .env:
-echo "GEMINI_API_KEY=your-key" > .env
-```
+`run_pipeline.sh` sẽ tự load `.env` nếu file tồn tại.
 
 ---
 
-## Quy trình thực hiện
+## Quy trình chạy
 
-### Bước 1: Dump Memory từ VM
+### Bước 1: Dump memory trong Windows VM
 
-Trong Windows VM, mở CMD với quyền Administrator:
+> Nên mở LINE, đăng nhập, mở đoạn chat cần lấy và thao tác vài tin nhắn trước khi dump để artifact đầy đủ hơn.
+
+Mở CMD/PowerShell **Run as Administrator**:
 
 ```cmd
-# Lấy PID của LINE
+:: Cách 1 - dump toàn bộ RAM
+winpmem64.exe memory.raw
+
+:: Cách 2 - dump process LINE
 tasklist | findstr LINE
-
-# Dump RAM (chọn 1 trong 2 cách)
-
-# Cách 1: WinPmem (dump toàn bộ physical memory)
-winpmem.exe memory.raw
-
-# Cách 2: ProcDump (dump process memory cụ thể - nhanh hơn)
 procdump.exe -ma <LINE_PID> line_dump.dmp
 ```
 
-Sau đó copy `memory.raw` sang host machine.
+Copy file dump sang máy phân tích.
 
-### Bước 2: Chạy phase1 
+### Bước 2: Chạy pipeline tự động
 
 ```bash
-python adaptive_memory_carver.py source/mem_capture.raw <pid>
+bash run_pipeline.sh
 ```
-### Bước 3: Chạy phase2
 
-Chế độ 1: Khôi phục toàn văn (Restore Mode)
+Query mode:
+
+```bash
+bash run_pipeline.sh <dump_path> <pid> query "List all messages in chronological order"
 ```
-python llm_reconstructor.py restore ./output/amc/amc_output.txt
+
+Interactive mode:
+
+```bash
+bash run_pipeline.sh <dump_path> <pid> interactive
 ```
-Chế độ 2: Truy vấn điều tra tương tác (Interactive Mode)
+
+### Bước 3: Chạy thủ công theo từng stage (tuỳ chọn)
+
+Stage 1:
+
+```bash
+python amc/adaptive_memory_carver_wrapper.py <dump_path> <pid>
 ```
-python llm_reconstructor.py interactive ./output/amc/amc_output.txt
+
+Stage 2:
+
+```bash
+python llm/llm_reconstructor_wrapper.py restore ./output/amc/amc_output.txt
+python llm/llm_reconstructor_wrapper.py interactive ./output/amc/amc_output.txt
 ```
 
 ---
 
-## Cấu trúc thư mục
+## Cấu trúc thư mục chính
 
 ```
-ram_weaver/
+NT334.RAM_Weaver/
 ├── README.md
-│
+├── .env
+├── run_pipeline.sh
 ├── amc/
-│   ├── __init__.py
-│   └── adaptive_memory_carver.py    # Stage 1: AMC
-│       ├── AdaptiveMemoryExtractor  # Heap Mode / PrivateMemory Mode
-│       └── ArtifactFilter           # Regex + JSON-like filter
-│
+│   ├── config.py
+│   ├── extractor.py
+│   ├── filtering.py
+│   ├── pipeline.py
+│   ├── adaptive_memory_carver.py           # bản cũ để đối chiếu
+│   └── adaptive_memory_carver_wrapper.py   # wrapper chạy stage 1
 ├── llm/
-│   ├── __init__.py
-│   └── llm_reconstructor.py         # Stage 2: LLM
-│       ├── GeminiClient             # Gemini API wrapper
-│       ├── TextRestorer             # Task A: Restoration
-│       └── ForensicQueryEngine      # Task B: Querying
-│
-│
-├── dumps/                           # Raw VAD dumps (auto-created)
-│   └── vad_raw/
-│
-└── output/                          # Kết quả (auto-created)
-    ├── amc/                         # AMC filtered chunks
-    ├── restored_messages.txt        # Task A output
-    ├── query_history.json           # Task B history
-    └── s2_report.txt                # Evaluation report
+│   ├── config.py
+│   ├── prompts.py
+│   ├── client.py
+│   ├── restorer.py
+│   ├── query_engine.py
+│   ├── pipeline.py
+│   ├── llm_reconstructor.py                # bản cũ để đối chiếu
+│   └── llm_reconstructor_wrapper.py        # wrapper chạy stage 2
+├── dumps/
+└── output/
 ```

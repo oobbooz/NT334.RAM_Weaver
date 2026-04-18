@@ -3,3 +3,5 @@ output/
 source/
 __pycache__/
 venv/
+.env
+/Poster High-Fidelity and Contextual User Activity MemoryForensics.pdf

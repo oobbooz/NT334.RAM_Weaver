@@ -17,6 +17,7 @@ import re
 import json
 import subprocess
 import struct
+import sys
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -85,8 +86,8 @@ class AdaptiveMemoryExtractor:
     Chọn và thực thi chiến lược extraction phù hợp với ứng dụng target.
 
     Hai chế độ (theo paper):
-    - Heap Mode       : Parse PEB → dump các VAD vùng heap
-    - PrivateMemory   : Duyệt VAD tree → dump tất cả PrivateMemory,
+    - Heap Mode       : Parse PEB -> dump các VAD vùng heap
+    - PrivateMemory   : Duyệt VAD tree -> dump tất cả PrivateMemory,
                         loại trừ VadImageMap (DLL/EXE) và device memory
     """
 
@@ -99,28 +100,44 @@ class AdaptiveMemoryExtractor:
         Entry point: tự động chọn mode hoặc dùng mode được chỉ định.
         Trả về danh sách đường dẫn tới các raw binary chunk đã dump.
         """
+        if not Path(dump_path).is_file():
+            log.error(f"Không tìm thấy dump file: {dump_path}")
+            return []
+
         mode = self._detect_mode(dump_path, pid)
         log.info(f"Extraction mode được chọn: {mode.upper()}")
 
         if mode == "heap":
-            return self._heap_mode(dump_path, pid)
+            files = self._heap_mode(dump_path, pid)
         else:
-            return self._private_memory_mode(dump_path, pid)
+            files = self._private_memory_mode(dump_path, pid)
+
+        if files:
+            return files
+
+        # Process dump (.dmp) thường không dựng được kernel layer cho VadInfo.
+        # Fallback: dùng trực tiếp dump file cho bước string extraction/filtering.
+        if dump_path.lower().endswith(".dmp"):
+            log.warning(
+                "Volatility không trích xuất được VAD từ process dump. "
+                "Fallback: dùng trực tiếp file .dmp cho bước string extraction/filtering."
+            )
+            return [dump_path]
+
+        return []
 
     def _detect_mode(self, dump_path: str, pid: int) -> str:
         """
         Heuristic tự động chọn mode:
-        - Nếu app có heap Windows chuẩn (PEB trỏ tới ProcessHeap) → Heap Mode
-        - Nếu app dùng custom allocator như LINE → PrivateMemory Mode
+        - Nếu app có heap Windows chuẩn (PEB trỏ tới ProcessHeap) -> Heap Mode
+        - Nếu app dùng custom allocator như LINE -> PrivateMemory Mode
 
-        Theo paper: LINE Messenger dùng PrivateMemory Mode.
-        Hiện tại default về PrivateMemory nếu không chỉ định rõ.
+        LINE Messenger thường phù hợp PrivateMemory Mode.
         """
         if self.cfg.extraction_mode != "auto":
             return self.cfg.extraction_mode
 
-        # TODO: Implement PEB parse để detect tự động
-        # Hiện tại: default PrivateMemory (phù hợp với LINE)
+        # Mặc định chọn PrivateMemory
         log.info("Auto-detect: default về PrivateMemory mode (phù hợp LINE Messenger)")
         return "private_memory"
 
@@ -181,15 +198,14 @@ class AdaptiveMemoryExtractor:
                 continue
 
             try:
-                # SỬA Ở ĐÂY: Cột của Vol3 là -> 0:PID, 1:Process, 2:Offset, 3:Start, 4:End, 5:Tag, 6:Protection, 10:Type
+                # Cột Volatility 3: 0:PID, 1:Process, 2:Offset, 3:Start, 4:End, 5:Tag, 6:Protection, 10:Type
                 start = int(parts[3], 16)
                 end = int(parts[4], 16)
                 vad_type = parts[10] if len(parts) > 10 else ""
                 protection = parts[6] if len(parts) > 6 else ""
-                tag = parts[5] if len(parts) > 5 else ""
 
-                # Loại trừ VadImageMap (DLL/EXE) — chỉ giữ VadS và Vad
-                if "Mapped" in vad_type or "Image" in vad_type: # Vol3 dùng chữ Mapped/Image
+                # Loại trừ VadImageMap (DLL/EXE)
+                if "Mapped" in vad_type or "Image" in vad_type:
                     continue
                 # Loại trừ device memory (thường không có READWRITE)
                 if "READONLY" in protection and "EXECUTE" not in protection:
@@ -233,7 +249,6 @@ class AdaptiveMemoryExtractor:
         # Lọc chỉ giữ các region thuộc danh sách cần thiết
         for f in dumped:
             fname = f.name
-            # SỬA Ở ĐÂY 2: Volatility 3 thường thêm '0x' vào trước địa chỉ, cần thêm (?:0x)? vào regex
             match = re.search(r"vad\.(?:0x)?([0-9a-fA-F]+)-(?:0x)?([0-9a-fA-F]+)\.dmp", fname)
             if match:
                 file_start = int(match.group(1), 16)
@@ -244,7 +259,7 @@ class AdaptiveMemoryExtractor:
                         output_files.append(str(f))
                         break
             else:
-                # Nếu không parse được tên → giữ lại hết (safe fallback)
+                # Nếu không parse được tên thì giữ lại
                 output_files.append(str(f))
 
         log.info(f"Số region được giữ lại sau filter: {len(output_files)}")
@@ -252,12 +267,15 @@ class AdaptiveMemoryExtractor:
 
     def _run_volatility(self, dump_path: str, args: list) -> str:
         """Chạy lệnh Volatility3 và trả về stdout."""
-        # TÁCH RIÊNG trình thông dịch và file script
-        python_exe = "python3"
+        # Ưu tiên Python từ env, nếu không có thì dùng interpreter hiện tại
+        python_exe = os.environ.get("RAM_WEAVER_PYTHON") or sys.executable
         vol_script = self.cfg.volatility_path 
-        
-        # Sửa cấu trúc cmd thành một danh sách các phần tử tách biệt
-        cmd = [python_exe, vol_script, "-f", dump_path] + args
+
+        # Nếu vol_script là launcher (.exe) thì chạy trực tiếp
+        if str(vol_script).lower().endswith(".exe"):
+            cmd = [vol_script, "-f", dump_path] + args
+        else:
+            cmd = [python_exe, vol_script, "-f", dump_path] + args
         
         log.info(f"Đang thực thi: {' '.join(cmd)}")
         try:
@@ -274,7 +292,7 @@ class AdaptiveMemoryExtractor:
             log.error("Volatility timeout!")
             return ""
         except FileNotFoundError:
-            log.error(f"Không tìm thấy file tại: {vol_script}")
+            log.error(f"Không tìm thấy executable/script: {cmd[0]}")
             return ""
 
 # ---------------------------------------------------------------------------
@@ -283,7 +301,7 @@ class AdaptiveMemoryExtractor:
 
 class ArtifactFilter:
     """
-    Nhận binary dump files → extract text → filter noise → output text chunks.
+    Nhận binary dump files -> extract text -> filter noise -> output text chunks.
 
     Hai lớp filter (theo paper):
     1. Regex-based Filtering  : loại system noise (paths, GUIDs, binary garbage)
@@ -404,7 +422,7 @@ class ArtifactFilter:
             # Đếm số JSON key của interest xuất hiện trong string
             matches = keys_regex.findall(s)
             if len(matches) >= self.cfg.json_key_threshold:
-                # String này có đủ JSON keys → giữ lại
+                # String này có đủ JSON keys -> giữ lại
                 valuable_chunks.append(s)
                 continue
 
@@ -451,7 +469,7 @@ class ArtifactFilter:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n---CHUNK---\n".join(chunks))
         size_kb = os.path.getsize(output_path) / 1024
-        log.info(f"Đã lưu {len(chunks)} chunks → {output_path} ({size_kb:.2f} KB)")
+        log.info(f"Đã lưu {len(chunks)} chunks: {output_path} ({size_kb:.2f} KB)")
         return output_path
 
 
@@ -462,7 +480,7 @@ class ArtifactFilter:
 class AdaptiveMemoryCarver:
     """
     Orchestrate toàn bộ Stage 1:
-    AME (extraction) → ArtifactFilter (filtering) → output chunks
+    AME (extraction) -> ArtifactFilter (filtering) -> output chunks
     """
 
     def __init__(self, config: Optional[AMCConfig] = None):
@@ -537,7 +555,7 @@ if __name__ == "__main__":
     result = amc.run(dump_path, pid)
 
     if result:
-        print(f"\n✓ Output lưu tại: {result}")
+        print(f"\nOutput luu tai: {result}")
         print(f"  Kích thước: {os.path.getsize(result) / 1024:.2f} KB")
     else:
-        print("\n✗ AMC thất bại")
+        print("\nAMC that bai")
