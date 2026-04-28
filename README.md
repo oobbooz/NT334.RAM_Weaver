@@ -95,14 +95,14 @@ bash run_pipeline.sh <dump_path> <pid> interactive
 Stage 1:
 
 ```bash
-python amc/adaptive_memory_carver_wrapper.py <dump_path> <pid>
+python amc/amc_runner.py  <dump_path> <pid>
 ```
 
 Stage 2:
 
 ```bash
-python llm/llm_reconstructor_wrapper.py restore ./output/amc/amc_output.txt
-python llm/llm_reconstructor_wrapper.py interactive ./output/amc/amc_output.txt
+python llm/ll_runner.py restore ./output/amc/amc_output.txt
+python llm/llm_runner.py interactive ./output/amc/amc_output.txt
 ```
 
 ---
@@ -113,23 +113,26 @@ python llm/llm_reconstructor_wrapper.py interactive ./output/amc/amc_output.txt
 NT334.RAM_Weaver/
 ├── README.md
 ├── .env
+├── diagnose.py # Debug / analysis tool
+├── test_filtering.py
+├── test_metrics.py
+├── test_prompts.py
 ├── run_pipeline.sh
 ├── amc/
-│   ├── config.py
-│   ├── extractor.py
-│   ├── filtering.py
-│   ├── pipeline.py
-│   ├── adaptive_memory_carver.py           # bản cũ để đối chiếu
-│   └── adaptive_memory_carver_wrapper.py   # wrapper chạy stage 1
+│  ─ amc_runner.py
+│ ├── config.py
+│ ├── extractor.py
+│ ├── filtering.py
+│ └── pipeline.py
 ├── llm/
-│   ├── config.py
-│   ├── prompts.py
-│   ├── client.py
-│   ├── restorer.py
-│   ├── query_engine.py
-│   ├── pipeline.py
-│   ├── llm_reconstructor.py                # bản cũ để đối chiếu
-│   └── llm_reconstructor_wrapper.py        # wrapper chạy stage 2
+│  ├── client.py
+│  ├── config.py
+│  ├── llm_pipeline.py
+│  ├── llm_runner.py
+│  ├── metrics.py
+│  ├── prompts.py
+│  ├── query_engine.py
+│  └── restorer.py
 ├── dumps/
 └── output/
 ```
