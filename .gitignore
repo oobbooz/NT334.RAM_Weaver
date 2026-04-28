@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+
+# dữ liệu nặng
+output/
+vad_dumps/
+source/
+*.raw
+
+# venv
+venv/
