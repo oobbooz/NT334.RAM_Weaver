@@ -1,4 +1,6 @@
-from .config import AMCConfig
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import LLMConfig
 from .extractor import AdaptiveMemoryExtractor
 from .filtering import ArtifactFilter
 from .pipeline import AdaptiveMemoryCarver

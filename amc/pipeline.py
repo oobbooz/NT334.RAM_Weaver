@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
-
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import AMCConfig
-from extractor import AdaptiveMemoryExtractor
-from filtering import ArtifactFilter
+from .extractor import AdaptiveMemoryExtractor
+from .filtering import ArtifactFilter
 
 log = logging.getLogger("ram_weaver.amc.pipeline")
 

@@ -38,12 +38,13 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    # Thư mục chứa script này (cũng là thư mục chứa tất cả module)
+    # Thư mục chứa script này (mặc định là `amc/`) và thư mục gốc project
     script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent
 
-    # Đảm bảo import được các module flat trong cùng thư mục
-    if str(script_dir) not in sys.path:
-        sys.path.insert(0, str(script_dir))
+    # Thêm thư mục gốc project vào sys.path để hỗ trợ imports theo package
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 
     # Load .env từ cùng thư mục
     _load_dotenv(script_dir / ".env")
@@ -73,7 +74,8 @@ def main() -> None:
 
     # Import sau khi sys.path đã được set
     from config import AMCConfig          # noqa: PLC0415  (flat import)
-    from pipeline import AdaptiveMemoryCarver  # noqa: PLC0415
+    # Import package-style để tránh lỗi relative imports bên trong amc/*.py
+    from amc.pipeline import AdaptiveMemoryCarver  # noqa: PLC0415
 
     config = AMCConfig(
         volatility_path=os.environ.get("RAM_WEAVER_VOL_PATH"),

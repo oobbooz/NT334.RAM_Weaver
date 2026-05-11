@@ -26,6 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import AMCConfig
 
 log = logging.getLogger("ram_weaver.amc.extractor")
@@ -123,14 +124,23 @@ class AdaptiveMemoryExtractor:
         heap_regions: list[tuple[int, int]] = []
         for line in vad_info.splitlines():
             if "VadS" in line and "READWRITE" in line:
+                # Volatility 3 vadinfo columns (space-separated):
+                # PID  Offset  VPN_Start  VPN_End  Tag  CommitCharge  ...
+                # VPN_Start and VPN_End are hex addresses (columns 2 and 3,
+                # 0-indexed) in most vol3 builds.  We scan all tokens for
+                # valid hex addresses rather than relying on fixed offsets.
                 parts = line.split()
-                if len(parts) >= 2:
-                    try:
-                        start = int(parts[0], 16)
-                        end = int(parts[1], 16)
-                        heap_regions.append((start, end))
-                    except ValueError:
-                        continue
+                hex_addrs = []
+                for part in parts:
+                    clean = part.strip().lstrip("0x").lstrip("0X")
+                    if clean and all(c in "0123456789abcdefABCDEF" for c in clean):
+                        try:
+                            hex_addrs.append(int(part, 16))
+                        except ValueError:
+                            continue
+                # Need at least two addresses (start, end)
+                if len(hex_addrs) >= 2:
+                    heap_regions.append((hex_addrs[0], hex_addrs[1]))
         log.info("Heap Mode: found %d heap regions.", len(heap_regions))
         return self._dump_regions(dump_path, pid, heap_regions, prefix="heap")
 
@@ -147,37 +157,73 @@ class AdaptiveMemoryExtractor:
         if not vad_info:
             return []
 
+        # Log vài dòng đầu để xác nhận format Volatility output
+        first_lines = [l for l in vad_info.splitlines() if l.strip()][:3]
+        for i, l in enumerate(first_lines):
+            log.info("VAD output line %d: %s", i, l)
+
+        _HEX_RE = re.compile(r"\b(0x[0-9a-fA-F]+|[0-9a-fA-F]{4,})\b")
+
+        # Protection keywords cần giữ lại (writable private memory)
+        _KEEP_PROT = {"PAGE_READWRITE", "PAGE_WRITECOPY",
+                      "PAGE_EXECUTE_READWRITE", "PAGE_EXECUTE_WRITECOPY"}
+        # VadType keywords cần bỏ qua (mapped/image = không phải private)
+        _SKIP_TYPE = {"VadImageMap", "VadAwe", "VadDevicePhysicalMemory"}
+
         private_regions: list[tuple[int, int]] = []
         for line in vad_info.splitlines():
             line = line.strip()
-            if not line or line.startswith(("Volatility", "PID", "Offset")):
+            if not line:
                 continue
-            parts = line.split()
-            if len(parts) < 5:
+            # Bỏ qua header và info lines
+            if line.startswith(("Volatility", "PID", "Offset", "Pid", "Progress",
+                                 "Stacking", "WARNING", "ERROR")):
                 continue
-            try:
-                start = int(parts[3], 16)
-                end = int(parts[4], 16)
-                vad_type = parts[10] if len(parts) > 10 else ""
-                protection = parts[6] if len(parts) > 6 else ""
+            # Bỏ qua line không có số hex
+            hex_tokens = _HEX_RE.findall(line)
+            if len(hex_tokens) < 4:
+                continue
 
-                # Skip executable-file-mapped and device-backed regions
-                # as per paper Section 2.1 (PrivateMemory Mode definition).
-                if "Mapped" in vad_type or "Image" in vad_type:
+            try:
+                start = int(hex_tokens[2], 16)
+                end   = int(hex_tokens[3], 16)
+                # Sanity check: end > start, và không quá lớn (địa chỉ hợp lệ)
+                if end <= start or start == 0:
                     continue
-                # Skip read-only (no user data written at runtime)
-                if "READONLY" in protection and "EXECUTE" not in protection:
-                    continue
-                # Keep writable private regions
-                if "READWRITE" in protection or "WRITECOPY" in protection:
-                    private_regions.append((start, end))
-            except (ValueError, IndexError):
+            except ValueError:
                 continue
+
+            line_upper = line.upper()
+
+            # Bỏ qua mapped/image regions (paper Section 2.1)
+            if any(t.upper() in line_upper for t in _SKIP_TYPE):
+                continue
+            # "Mapped" hoặc "Image" trong VadType token
+            parts = line.split()
+            if any("Mapped" in p or "Image" in p for p in parts):
+                continue
+
+            # Giữ lại nếu có PAGE_READWRITE hoặc PAGE_WRITECOPY
+            if any(p in line_upper for p in _KEEP_PROT):
+                private_regions.append((start, end))
+                continue
+
+            # Fallback: nếu không có PAGE_ prefix rõ ràng, check READWRITE/WRITECOPY
+            if ("READWRITE" in line_upper or "WRITECOPY" in line_upper):
+                private_regions.append((start, end))
 
         log.info(
             "PrivateMemory Mode: found %d private regions.", len(private_regions)
         )
         if not private_regions:
+            log.warning(
+                "0 private regions found. Possible causes:\n"
+                "  1. PID sai (process không phải LINE hoặc đã tắt)\n"
+                "  2. memory.raw dump từ full system nhưng PID không match\n"
+                "  3. Volatility không nhận diện được symbol/profile\n"
+                "  4. Thử chạy thủ công: vol -f <dump> windows.vadinfo.VadInfo --pid %d",
+                pid,
+            )
             return []
         return self._dump_regions(
             dump_path, pid, private_regions, prefix="private"

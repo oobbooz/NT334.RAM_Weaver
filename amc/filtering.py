@@ -9,7 +9,7 @@ Implements the two-layer filtering described in paper Section 2.1:
 
 2. **Regex-based Filtering** – applies noise-reduction patterns that remove
    system-generated artefacts (file paths, GUIDs, URLs, IP addresses,
-   base64 blobs, hex escapes, null-byte runs) that pollute memory dumps.
+   base64 blobs, hex escapes) that pollute memory dumps.
 
 3. **JSON-like Pattern Filtering** – identifies strings containing at least
    ``json_key_threshold`` JSON keys from a domain-specific allow-list (e.g.
@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 from typing import Sequence
-
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import AMCConfig
 
 log = logging.getLogger("ram_weaver.amc.filtering")
@@ -86,19 +88,23 @@ class ArtifactFilter:
 
         if total_raw_bytes > 0:
             reduction_pct = (1.0 - total_clean_bytes / total_raw_bytes) * 100
-            # SNR approximation: 20*log10(signal/noise), where signal=clean, noise=raw
-            import math
+            # SNR approximation per paper Section 2 / Table 1:
+            #   SNR = 20 * log10(signal_bytes / total_bytes)
+            # where signal = useful filtered output, total = raw extracted bytes.
+            # The paper reports RAM-Weaver SNR ≈ -10.53 dB vs Baseline -47.33 dB,
+            # an improvement of ~37 dB.  We log the absolute SNR here; callers
+            # can subtract baseline SNR to compute the delta improvement.
             snr_db = (
                 20 * math.log10(total_clean_bytes / total_raw_bytes)
                 if total_clean_bytes > 0
                 else float("-inf")
             )
             log.info(
-                "Raw: %.2f KB | Clean: %.2f KB | Reduction: %.1f%% | SNR delta: %.2f dB",
+                "Raw: %.2f KB | Clean: %.2f KB | Reduction: %.1f%% | SNR: %.2f dB",
                 total_raw_bytes / 1024,
                 total_clean_bytes / 1024,
                 reduction_pct,
-                -snr_db,  # positive number = noise removed
+                snr_db,  # absolute SNR value (negative = signal < total, expected)
             )
 
         return all_chunks
@@ -197,7 +203,7 @@ class ArtifactFilter:
         - **Block parse**: extract well-formed ``{...}`` blocks and check
           each parsed dict for key coverage.
 
-        A deduplication step (keyed on the first 100 characters) prevents
+        A deduplication step (keyed on the full-content hash) prevents
         the same memory artefact from appearing multiple times in the output.
         """
         valuable: list[str] = []
@@ -216,13 +222,17 @@ class ArtifactFilter:
                     valuable.append(serialised)
                     break
 
-        # Deduplicate by first-100-char key
-        seen: set[str] = set()
+        # Deduplicate by full-content hash.
+        # Using first-100-chars as key risks false deduplication when two
+        # different messages share the same prefix (e.g., same "text"/"from"
+        # but different "id").  A hash of the full string is collision-free
+        # for practical memory dump sizes.
+        seen: set[int] = set()
         deduped: list[str] = []
         for chunk in valuable:
-            key = chunk[:100]
-            if key not in seen:
-                seen.add(key)
+            h = hash(chunk)
+            if h not in seen:
+                seen.add(h)
                 deduped.append(chunk)
 
         log.info("JSON-like filter: retained %d chunks.", len(deduped))
