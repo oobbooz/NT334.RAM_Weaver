@@ -164,3 +164,69 @@ def evaluate(
         "emr": exact_match_rate(references, hypotheses),
         "avg_cer": average_cer(references, hypotheses),
     }
+
+
+def initial_cer(raw_text: str, ground_truth: str) -> float:
+    """Compute Initial CER — measure of noise in raw extraction.
+    
+    Compares the full raw extraction against ground truth to assess
+    how much noise/garbage is present before LLM processing.
+    
+    Args:
+        raw_text: Full noisy text from extraction (e.g., all strings).
+        ground_truth: Ground-truth message to compare against.
+    
+    Returns:
+        CER score (can be > 1.0 if raw_text is much longer).
+    """
+    if not ground_truth:
+        return float("inf")
+    if not raw_text:
+        return float(len(ground_truth))
+    
+    # Use standard CER but limit hypothesis length to avoid extreme values
+    # (raw extractions can be thousands of times longer than ground truth)
+    limited_raw = raw_text[: max(len(ground_truth) * 10, 1000)]
+    return character_error_rate(ground_truth, limited_raw)
+
+
+def token_f1(reference: str, hypothesis: str) -> float:
+    """Compute token-level F1 score (whitespace-based tokenization).
+    
+    Useful for evaluating query answers where exact match is too strict
+    but token overlap is meaningful (S3 - Forensic Querying).
+    
+    Args:
+        reference: Ground-truth text.
+        hypothesis: Model-generated text.
+    
+    Returns:
+        F1 score (0.0 to 1.0).
+    """
+    from collections import Counter
+    
+    ref_tokens = reference.strip().split()
+    hyp_tokens = hypothesis.strip().split()
+    
+    if not ref_tokens and not hyp_tokens:
+        return 1.0
+    if not ref_tokens or not hyp_tokens:
+        return 0.0
+    
+    ref_counter = Counter(ref_tokens)
+    hyp_counter = Counter(hyp_tokens)
+    
+    common = 0
+    for token, count in ref_counter.items():
+        common += min(count, hyp_counter.get(token, 0))
+    
+    if common == 0:
+        return 0.0
+    
+    precision = common / sum(hyp_counter.values())
+    recall = common / sum(ref_counter.values())
+    
+    if precision + recall == 0:
+        return 0.0
+    
+    return 2 * precision * recall / (precision + recall)

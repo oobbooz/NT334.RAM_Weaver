@@ -1,6 +1,6 @@
 """Smoke tests for prompts.py – verify templates render without error."""
 
-from prompts import (
+from llm.prompts import (
     FORENSIC_QUERY_SYSTEM_PROMPT,
     FORENSIC_QUERY_USER_TEMPLATE,
     RESTORE_BATCH_USER_TEMPLATE,

@@ -10,3 +10,11 @@ source/
 
 # venv
 venv/
+.venv/
+
+dumps/
+
+chunks/
+
+train.csv
+winpmem64.exe

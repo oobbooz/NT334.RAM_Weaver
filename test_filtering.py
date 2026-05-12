@@ -11,7 +11,7 @@ import tempfile
 import pytest
 
 from config import AMCConfig
-from filtering import ArtifactFilter
+from amc.filtering import ArtifactFilter
 
 
 @pytest.fixture()

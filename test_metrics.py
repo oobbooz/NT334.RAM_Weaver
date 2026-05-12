@@ -5,11 +5,13 @@ paper's evaluation metrics behave correctly on controlled inputs.
 """
 
 import pytest
-from metrics import (
+from llm.metrics import (
     average_cer,
     character_error_rate,
     evaluate,
     exact_match_rate,
+    snr_db,
+    snr_delta_db,
 )
 
 
@@ -109,3 +111,44 @@ class TestEvaluate:
         assert "avg_cer" in result
         assert result["emr"] == 1.0
         assert result["avg_cer"] == 0.0
+
+
+class TestSNR:
+    """Verify SNR helpers reproduce the paper's Table 1 numbers.
+
+    Paper Table 1 (approximate):
+      Baseline 1 (naïve strings): SNR ≈ -47.33 dB
+      RAM-Weaver full pipeline:   SNR ≈ -10.53 dB
+      Improvement:                        ≈ +36.8 dB
+    """
+
+    def test_snr_db_perfect_signal(self):
+        # signal == total => SNR = 0 dB
+        assert snr_db(100, 100) == 0.0
+
+    def test_snr_db_negative_when_signal_lt_total(self):
+        # signal < total → SNR is negative (expected in real scenarios)
+        result = snr_db(10, 100)
+        assert result < 0
+
+    def test_snr_db_zero_signal_returns_inf(self):
+        assert snr_db(0, 100) == float("-inf")
+
+    def test_snr_db_zero_total_raises(self):
+        with pytest.raises(ValueError):
+            snr_db(10, 0)
+
+    def test_snr_delta_improvement(self):
+        # After AMC: SNR improves (less negative)
+        # Simulate: baseline SNR ≈ -47 dB, after AMC ≈ -10 dB → delta ≈ +37 dB
+        import math
+        # Use real paper approximate values
+        baseline_total = 34_100 * 1024   # 34.10 MB in bytes
+        baseline_signal = int(baseline_total * 10 ** (-47.33 / 20))
+        amc_total = 15_800              # 15.80 KB in bytes
+        amc_signal = int(amc_total * 10 ** (-10.53 / 20))
+
+        delta = snr_delta_db(amc_signal, amc_total, baseline_signal, baseline_total)
+        # Should be approximately +36.8 dB (paper claims ~37 dB)
+        assert abs(delta - 36.8) < 1.0, f"Expected ~36.8 dB improvement, got {delta:.2f} dB"
+
