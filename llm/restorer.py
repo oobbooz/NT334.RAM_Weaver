@@ -15,6 +15,8 @@ import logging
 import time
 
 from client import BaseLLMClient
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import LLMConfig
 from prompts import (
     RESTORE_BATCH_USER_TEMPLATE,

@@ -20,7 +20,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def _load_dotenv(env_file: Path) -> None:
     if not env_file.is_file():
@@ -66,14 +66,19 @@ def main() -> None:
 
     # Validate API key trước khi import SDK nặng
     provider = os.environ.get("RAM_WEAVER_LLM_PROVIDER", "gemini").lower()
-    key_var = "OPENAI_API_KEY" if provider == "openai" else "GEMINI_API_KEY"
+    if provider == "huggingface":
+        key_var = "HF_API_TOKEN"
+    elif provider == "openai":
+        key_var = "OPENAI_API_KEY"
+    else:
+        key_var = "GEMINI_API_KEY"
     if not os.environ.get(key_var):
         print(f"[ERROR] Chua set {key_var}. Them vao .env hoac export truoc khi chay.")
         sys.exit(1)
 
     # Import sau khi sys.path đã được set
-    from config import LLMConfig          # noqa: PLC0415
-    from llm_pipeline import LLMReconstructor  # noqa: PLC0415
+    from config import LLMConfig          
+    from llm_pipeline import LLMReconstructor  
 
     config = LLMConfig(temperature=0.1)
     rec = LLMReconstructor(config)

@@ -12,6 +12,7 @@ import os
 import sys
 
 from client import BaseLLMClient
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import LLMConfig
 from prompts import FORENSIC_QUERY_SYSTEM_PROMPT, FORENSIC_QUERY_USER_TEMPLATE
 

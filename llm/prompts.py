@@ -33,8 +33,8 @@ STRICT RULES:
 7. Sort output chronologically by createdTime (Unix milliseconds).
 8. Return ONLY the reconstructed messages, nothing else.
 
-Output format (one message per line):
-[HH:MM:SS UTC] <sender_id_short> → <recipient_id_short>: <message_text>\
+Output format – one message per line, matching paper Figure 2 exactly:
+[HH:MM:SS] <full_sender_user_id>: <message_text>\
 """
 
 RESTORE_USER_TEMPLATE: str = """\
@@ -102,7 +102,10 @@ CRITICAL ANALYSIS RULES:
    - Use short labels (e.g., User_A, User_B) alongside the full ID.
 6. Present results in chronological order (oldest first unless asked otherwise).
 7. Be precise and complete – missing messages could affect the investigation.
-8. If data is ambiguous or a fragment cannot be reliably reassembled, note it.\
+8. If data is ambiguous or a fragment cannot be reliably reassembled, note it.
+
+When listing messages, use this format (matching paper Figure 2):
+[HH:MM:SS] <full_sender_user_id>: <message_text>\
 """
 
 FORENSIC_QUERY_USER_TEMPLATE: str = """\

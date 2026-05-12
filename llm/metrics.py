@@ -15,6 +15,53 @@ pipeline on their own datasets.
 from __future__ import annotations
 
 
+def snr_db(signal_bytes: int, total_bytes: int) -> float:
+    """Compute SNR in dB as used in the paper (Table 1).
+
+    SNR = 20 * log10(signal_bytes / total_bytes)
+
+    where ``signal_bytes`` is the length of useful/clean output and
+    ``total_bytes`` is the length of the raw extracted text fed to the filter.
+    The paper reports:
+      - Baseline 1 (naïve strings): SNR ≈ -47.33 dB
+      - RAM-Weaver full pipeline:   SNR ≈ -10.53 dB
+      - Improvement:                        ≈ +36.8 dB  (≈ 37 dB)
+
+    Args:
+        signal_bytes: Number of bytes (or chars) of useful output.
+        total_bytes:  Number of bytes (or chars) of raw input.
+
+    Returns:
+        SNR in dB (negative value; less negative = better).
+    """
+    import math
+    if total_bytes <= 0:
+        raise ValueError("total_bytes must be positive.")
+    if signal_bytes <= 0:
+        return float("-inf")
+    return 20 * math.log10(signal_bytes / total_bytes)
+
+
+def snr_delta_db(
+    signal_bytes_after: int,
+    total_bytes_after: int,
+    signal_bytes_before: int,
+    total_bytes_before: int,
+) -> float:
+    """Compute SNR improvement (delta) between two pipeline stages.
+
+    Returns ``snr_after - snr_before`` in dB.  A positive value means
+    the SNR improved (less noise relative to signal).
+
+    The paper claims ~37 dB improvement when comparing the full AMC
+    pipeline to naïve ``strings`` baseline.
+    """
+    return snr_db(signal_bytes_after, total_bytes_after) - snr_db(
+        signal_bytes_before, total_bytes_before
+    )
+
+
+
 def character_error_rate(reference: str, hypothesis: str) -> float:
     """Compute CER (Levenshtein distance / len(reference)).
 

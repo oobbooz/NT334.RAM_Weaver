@@ -8,8 +8,8 @@ Usage::
     from ram_weaver.llm import LLMConfig, LLMReconstructor
 
     rec = LLMReconstructor(LLMConfig(provider="openai"))
-    results = rec.run_restoration("./output/amc_chunks/amc_output.txt")
-    answer  = rec.run_forensic_query("./output/amc_chunks/amc_output.txt",
+    results = rec.run_restoration("./output/amc_output.txt")
+    answer  = rec.run_forensic_query("./output/amc_output.txt",
                                      "List all messages after 14:15 Taipei time.")
 """
 
@@ -20,10 +20,11 @@ import os
 from typing import Optional
 
 from client import BaseLLMClient, create_client
-from config import LLMConfig
 from query_engine import ForensicQueryEngine
 from restorer import TextRestorer
-
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import LLMConfig
 log = logging.getLogger("ram_weaver.llm.pipeline")
 
 _DEFAULT_RESTORED_OUTPUT = "./output/restored.txt"
