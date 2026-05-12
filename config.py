@@ -33,13 +33,14 @@ class AMCConfig:
     ])
     json_key_threshold: int = 2
     noise_patterns: list[str] = field(default_factory=lambda: [
-        r"[A-Za-z]:\\[\w\\/. -]+",
-        r"\{[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}",
-        r"https?://[^\s\"'<>]{5,200}",
-        r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}",
-        r"[A-Za-z0-9+/]{40,}={0,2}",
-        r"\\x[0-9a-fA-F]{2}",
-        r"\x00+",
+        r"[A-Za-z]:\\[\w\\/. -]+",                          # Windows file paths
+        r"\{[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}",  # GUIDs
+        r"https?://[^\s\"'<>]{5,200}",                      # URLs
+        r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}",                  # IPv4 addresses
+        r"[A-Za-z0-9+/]{40,}={0,2}",                        # base64 blobs ≥40 chars
+        r"\\x[0-9a-fA-F]{2}",                               # escaped hex literals
+        # Note: null-byte pattern (\x00+) was removed – string extraction
+        # already filters non-printable bytes, so nulls never reach this stage.
     ])
 
     def __post_init__(self) -> None:
@@ -91,13 +92,18 @@ class LLMConfig:
                 or os.environ.get("RAM_WEAVER_GEMINI_MODEL")
             )
             self.model = env_model or (
-                "o3" if self.provider == "openai" else "gemini-2.5-flash"
+                "o3" if self.provider == "openai" else "gemini-2.5-flash"  # dùng Flash (Pro cần billing riêng)
             )
 
         if self.api_key is None:
-            self.api_key = os.environ.get(
-                "OPENAI_API_KEY" if self.provider == "openai" else "GEMINI_API_KEY"
-            )
+            if self.provider == "openai":
+                self.api_key = os.environ.get("OPENAI_API_KEY")
+            elif self.provider == "huggingface":
+                self.api_key = os.environ.get("HF_API_TOKEN")
+            elif self.provider == "openrouter":
+                self.api_key = os.environ.get("OPENROUTER_API_KEY")
+            else:
+                self.api_key = os.environ.get("GEMINI_API_KEY")
 
         # Cho phép override từ env
         env_tokens = os.environ.get("RAM_WEAVER_MAX_OUTPUT_TOKENS")
