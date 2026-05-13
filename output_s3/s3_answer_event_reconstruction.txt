@@ -1,0 +1,4 @@
+Query [event_reconstruction]: Summarize the incident mentioned involving a concert and a fan in a wheelchair.
+
+=== LLM Answer ===
+A user identified as u73f58735750c4355e8133243e6e8e24d mentioned an incident at a concert where a performer gave their microphone to a fan in a wheelchair. The user noted this as a positive gesture, but also humorously added that the same performer had previously told a person in a wheelchair to stand up. This discussion occurred around 13:21:42 ICT on 2026-05-13.

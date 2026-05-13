@@ -1,0 +1,21 @@
+Query [entity_listing]: List all the specific types of animals mentioned throughout the conversation.
+
+=== LLM Answer ===
+*   Bear
+*   Black swallower fish
+*   Cat
+*   Chewbacca
+*   Dog
+*   Fish
+*   Gecko
+*   Hyena
+*   Insect
+*   Jellyfish
+*   Mosquito
+*   Robot dog
+*   Seahorse
+*   Shark
+*   Sheep
+*   Tiger
+*   Tuna
+*   Zebrafish

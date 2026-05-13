@@ -1,0 +1,48 @@
+{
+  "experiment": "S3 — Contextual Forensic Querying",
+  "amc_size_kb": 604.1,
+  "results": [
+    {
+      "id": "paper_fig2_temporal",
+      "query": "List all messages after Wed May 13 2026 13:00:00 (Vietnam time).",
+      "answer": "[13:00:21]\nu73f58735750c4355e8133243e6e8e24d:\nI've heard that too. Did you know that the DC in DC comics stands for Detective Comics?\n\n[13:00:35]\nu0cd370a43f040bf5c997deef148234aa:\nThe manga market is Japan is valued at $6 to $7 billion dollars!\n\n[13:01:04]\nu0cd370a43f040bf5c997deef148234aa:\nNo doubt! Do you know much about the planets or the universe?\n\n[13:02:12]\nu0cd370a43f040bf5c997deef148234aa:\nYeah, but only one ? For all the universe ? It does not seems logic ...\n\n[13:04:35]\nu0cd370a43f040bf5c997deef148234aa:\nTrue Did you know Jackson had a patent on a dancing device?\n\n[13:05:43]\nu0cd370a43f040bf5c997deef148234aa:\nWhoa, cool! I know he seemed to be quite the animal lover.\n\n[13:06:03]\nu0cd370a43f040bf5c997deef148234aa:\nThat is a lot! And in 2002 Germany gave them legal rights.\n\n[13:06:13]\nu0cd370a43f040bf5c997deef148234aa:\nI wonder if the immortal jellyfish needs protecting... being immortal and all.\n\n[13:06:47]\nu0cd370a43f040bf5c997deef148234aa:\nWell, they are good at helping people adjust to new situations, too.\n\n[13:07:00]\nu0cd370a43f040bf5c997deef148234aa:\nOr people with anxiety and depression, or kids with autism.\n\n[13:08:33]\nu0cd370a43f040bf5c997deef148234aa:\nTuna can get quite large, too. It's cool how big some fish get.\n\n[13:10:29]",
+      "ground_truth": "",
+      "elapsed_s": 46.4
+    },
+    {
+      "id": "context_extraction",
+      "query": "What did the users discuss regarding Theodore Roosevelt? Please provide the specific details mentioned.",
+      "answer": "Users discussed Theodore Roosevelt, noting he was an \"interesting guy\" and \"quite the animal lover\" (u73f58735750c4355e8133243e6e8e24d at 13:04:35 ICT, u0cd370a43f040bf5c997deef148234aa at 13:05:43 ICT). They specifically mentioned that he \"had 20 pets including a bear and Hyena\" (u0cd370a43f040bf5c997deef148234aa at 13:25:46 ICT, confirming an earlier statement by u73f58735750c4355e8133243e6e8e24d at 13:25:21 ICT). One user wondered if he kept these pets in the White House or had a stable for the bear (u73f58735750c4355e8133243e6e8e24d at 13:26:15 ICT).",
+      "ground_truth": "",
+      "elapsed_s": 51.62
+    },
+    {
+      "id": "sentiment_opinion",
+      "query": "Did any user express a negative opinion about a specific genre of music? If so, which genre and what did they say?",
+      "answer": "Yes, a user expressed a negative opinion about a specific genre of music.\n\nUser ID: u73f58735750c4355e8133243e6e8e24d\nMessage: \"I'll pretty much listen to anything except country. It is god awful\"\nThe genre mentioned negatively was country music.\nEvidence: \"I'll pretty much listen to anything except country. It is god awful\" (2026-05-13 13:25:31 ICT)",
+      "ground_truth": "",
+      "elapsed_s": 10.65
+    },
+    {
+      "id": "event_reconstruction",
+      "query": "Summarize the incident mentioned involving a concert and a fan in a wheelchair.",
+      "answer": "A user identified as u73f58735750c4355e8133243e6e8e24d mentioned an incident at a concert where a performer gave their microphone to a fan in a wheelchair. The user noted this as a positive gesture, but also humorously added that the same performer had previously told a person in a wheelchair to stand up. This discussion occurred around 13:21:42 ICT on 2026-05-13.",
+      "ground_truth": "",
+      "elapsed_s": 8.45
+    },
+    {
+      "id": "entity_listing",
+      "query": "List all the specific types of animals mentioned throughout the conversation.",
+      "answer": "*   Bear\n*   Black swallower fish\n*   Cat\n*   Chewbacca\n*   Dog\n*   Fish\n*   Gecko\n*   Hyena\n*   Insect\n*   Jellyfish\n*   Mosquito\n*   Robot dog\n*   Seahorse\n*   Shark\n*   Sheep\n*   Tiger\n*   Tuna\n*   Zebrafish",
+      "ground_truth": "",
+      "elapsed_s": 14.1
+    },
+    {
+      "id": "speaker_attribution",
+      "query": "Identify the user ID who mentioned 'rap battles'. Did this same user also talk about country music?",
+      "answer": "u73f58735750c4355e8133243e6e8e24d:\nI didn't know that either. That has to sound a lot different than the rap battles here. It was nice talking with you as well.\n\nYes, the same user also talked about country music.\n[13:25:31] I'll pretty much listen to anything except country. It is god awful",
+      "ground_truth": "",
+      "elapsed_s": 13.26
+    }
+  ]
+}

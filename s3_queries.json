@@ -1,0 +1,26 @@
+[
+  {
+    "id": "paper_fig2_temporal",
+    "query": "List all messages after Wed May 13 2026 13:00:00 (Vietnam time)."
+  },
+  {
+    "id": "context_extraction",
+    "query": "What did the users discuss regarding Theodore Roosevelt? Please provide the specific details mentioned."
+  },
+  {
+    "id": "sentiment_opinion",
+    "query": "Did any user express a negative opinion about a specific genre of music? If so, which genre and what did they say?"
+  },
+  {
+    "id": "event_reconstruction",
+    "query": "Summarize the incident mentioned involving a concert and a fan in a wheelchair."
+  },
+  {
+    "id": "entity_listing",
+    "query": "List all the specific types of animals mentioned throughout the conversation."
+  },
+  {
+    "id": "speaker_attribution",
+    "query": "Identify the user ID who mentioned 'rap battles'. Did this same user also talk about country music?"
+  }
+]

@@ -33,8 +33,10 @@ STRICT RULES:
 7. Sort output chronologically by createdTime (Unix milliseconds).
 8. Return ONLY the reconstructed messages, nothing else.
 
-Output format – one message per line, matching paper Figure 2 exactly:
-[HH:MM:SS] <full_sender_user_id>: <message_text>\
+Output format – matching paper Figure 2 exactly:
+[HH:MM:SS]
+<full_sender_user_id>:
+<message_text>\
 """
 
 RESTORE_USER_TEMPLATE: str = """\
@@ -68,48 +70,85 @@ FORENSIC_QUERY_SYSTEM_PROMPT: str = """\
 You are an expert digital forensics analyst. You have been given raw memory \
 data extracted from LINE Messenger (Windows desktop client, user in Vietnam).
 
-The data contains JSON message objects and fragments with these fields:
+The data contains JSON message objects with these fields:
   "text"        – message content (may be split across adjacent chunks)
-  "from"        – sender user ID  (prefix "ue..." or "u6..." etc.)
+  "from"        – sender user ID
   "to"          – recipient user ID
-  "createdTime" – Unix timestamp in MILLISECONDS (divide by 1000 for seconds)
-  "chatId"      – conversation/chat ID
+  "createdTime" – pre-converted to "_vnTime" (Vietnam time, UTC+7) by the system
   "type"        – message type: 1 = text message
-  "status"      – 1 = sent (unread), 2 = delivered/read
-  "id"          – unique message ID (numeric string)
+  "status"      – 1 = sent, 2 = delivered/read
+  "id"          – unique message ID (use this to deduplicate)
 
-CRITICAL ANALYSIS RULES:
-1. TIMESTAMP CONVERSION: createdTime is in MILLISECONDS. Always divide by 1000 \
-   before converting. Example: 1775477262261 ms → 1775477262 s → \
-   2026-03-29 10:47:42 UTC  (or UTC+7 = 17:47:42 ICT if timezone requested).
-2. FRAGMENT REASSEMBLY: Memory chunks may be split mid-message or mid-word. \
-   Look across ALL chunks for partial text fields that belong together. \
-   If a chunk starts with partial JSON like ':"a hot ko"' and another chunk \
-   has context showing the full field was '"text":"a hot ko"', treat it as \
-   complete. If a word is clearly cut (e.g., 'em be' in one chunk, 'bong bay' \
-   in the next for the same message ID), reassemble into 'em be bong bay'.
-3. DEDUPLICATION: The same message often appears 2-4 times in memory \
-   (write-ahead log, cache, display buffer). Use the "id" field to deduplicate. \
-   Keep only one instance per unique message ID.
-4. NOISE REJECTION: Ignore chunks containing only:
-   - Database index definitions (CREATE INDEX ...)
-   - SQL UPDATE statements for _chat table
-   - App changelog entries (v9.x.x, v26.x.x "body" text)
-   - LINE feature flags (function.album.*, function.ai.*, etc.)
-   - Language mapping arrays
-5. SPEAKER IDENTIFICATION: Map user IDs to roles based on context:
-   - The ID appearing most as "from" is likely the device owner.
-   - Use short labels (e.g., User_A, User_B) alongside the full ID.
-6. Present results in chronological order (oldest first unless asked otherwise).
-7. Be precise and complete – missing messages could affect the investigation.
-8. If data is ambiguous or a fragment cannot be reliably reassembled, note it.
+NOTE: Each JSON object has a "_vnTime" field already showing the correct \
+Vietnam local time (e.g. "2026-05-13 13:00:21 ICT"). \
+Always read timestamps from "_vnTime" — do NOT attempt to recalculate \
+from "createdTime".
 
-When listing messages, use this format (matching paper Figure 2):
-[HH:MM:SS] <full_sender_user_id>: <message_text>\
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+UNIVERSAL RULES (apply to every query):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+R1. DEDUPLICATION — The same message often appears 2-4× in memory \
+(write-ahead log, cache, display buffer). Use the "id" field to deduplicate. \
+Output each unique message ID exactly once.
+
+R2. NOISE REJECTION — Ignore chunks that contain only:
+   • Database index definitions (CREATE INDEX ...)
+   • SQL UPDATE statements for _chat table
+   • App changelog entries (v9.x.x, v26.x.x "body" text)
+   • LINE feature flags (function.album.*, function.ai.*, etc.)
+   • Language/locale mapping arrays
+
+R3. FRAGMENT REASSEMBLY — A message's "text" may be split across adjacent \
+chunks. Scan all chunks and reassemble partial text belonging to the same \
+message "id" before drawing conclusions.
+
+R4. EXHAUSTIVENESS — Never stop early. Never write "..." or "and more". \
+Return EVERY item that satisfies the query condition, without exception.
+
+R5. NO PREAMBLE — Output ONLY the answer. No introductory sentence, \
+no explanation, no "Here is the result:", no trailing commentary.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT — adapt to the query type:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TYPE 1 · MESSAGE LISTING (queries asking to "list messages", "show messages", \
+"messages after/before <time>", "messages sent by <user>"):
+  Use the paper Figure 2 format — one message per block, chronological order:
+
+  [HH:MM:SS]
+  <full_sender_user_id>:
+  <message_text>
+
+  Rules: read HH:MM:SS from "_vnTime". One blank line between messages. \
+No extra labels or annotations.
+
+TYPE 2 · INFORMATION EXTRACTION (queries asking "what did they discuss", \
+"what was mentioned about X", "summarize the incident/event"):
+  Write 2–5 concise prose sentences. Include the specific details found \
+(quotes from "text" field where relevant, speaker ID, approximate time). \
+Do not pad with generic statements.
+
+TYPE 3 · ENTITY / KEYWORD LISTING (queries asking to "list all X", \
+"identify all Y", "what types of Z were mentioned"):
+  Output a plain numbered or bulleted list, one item per line. \
+No timestamps, no user IDs unless explicitly asked.
+
+TYPE 4 · ATTRIBUTION & VERIFICATION (queries asking "who said X", \
+"identify the user who ...", "did the same user also ..."):
+  Part A — State the user ID (full) and the exact message text that \
+contains the keyword/phrase.
+  Part B — Answer the follow-up yes/no question with one sentence \
+plus the evidence (exact quote + timestamp from "_vnTime") if yes, \
+or "No evidence found in data." if no.
+
+If a query spans multiple types, combine the relevant formats in logical order.\
 """
 
 FORENSIC_QUERY_USER_TEMPLATE: str = """\
-Raw memory data from LINE Messenger:
+Raw memory data from LINE Messenger (timestamps already converted to \
+Vietnam time in the "_vnTime" field — use those directly):
 
 --- MEMORY DATA START ---
 {memory_data}
@@ -117,5 +156,7 @@ Raw memory data from LINE Messenger:
 
 Investigator's query: {query}
 
-Forensic analysis:\
+Determine the query type (Message Listing / Information Extraction / \
+Entity Listing / Attribution & Verification), apply the matching output \
+format, and return the complete answer:\
 """

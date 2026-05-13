@@ -21,7 +21,7 @@ class AMCConfig:
     python_executable: str | None = None
     volatility_timeout: int = 300
     vad_dump_dir: str = "./vad_dumps"
-    output_dir: str = "./output"
+    output_dir: str = "./output_s3"
     extraction_mode: str = "auto"
     encodings: list[str] = field(
         default_factory=lambda: ["utf-8", "utf-16-le"]
@@ -79,7 +79,10 @@ class LLMConfig:
     temperature: float = 0.1
     max_retries: int = 3
     retry_delay: float = 2.0
-    max_input_chars: int = 500_000
+    
+    # [EDITED]: Tăng mặc định từ 500_000 lên 2_000_000 để tránh việc input data bị cắt (truncating) 
+    # khi xử lý file AMC lớn. Ví dụ: line_s3.dmp tạo ra ~618KB dữ liệu.
+    max_input_chars: int = 2_000_000
 
     def __post_init__(self) -> None:
         self.provider = os.environ.get(
@@ -110,5 +113,13 @@ class LLMConfig:
         if env_tokens:
             try:
                 self.max_output_tokens = int(env_tokens)
+            except ValueError:
+                pass
+
+        # [EDITED]: Bổ sung tính năng override max_input_chars từ biến môi trường .env
+        env_chars = os.environ.get("RAM_WEAVER_MAX_INPUT_CHARS")
+        if env_chars:
+            try:
+                self.max_input_chars = int(env_chars)
             except ValueError:
                 pass

@@ -1,0 +1,37 @@
+Query [paper_fig2]: List all messages after Wed May 13 2026 13:00:00 (Vietnam time).
+
+=== LLM Answer ===
+[13:01:12]
+u0cd370a43f040bf5c997deef148234aa:
+Yeah, but only one ? For all the universe ? It does not seems logic ...
+[13:01:24]
+u0cd370a43f040bf5c997deef148234aa:
+The manga market is Japan is valued at $6 to $7 billion dollars!
+[13:01:43]
+u73f58735750c4355e8133243e6e8e24d:
+I've heard that too. Did you know that the DC in DC comics stands for Detective Comics?
+[13:01:44]
+u0cd370a43f040bf5c997deef148234aa:
+No doubt! Do you know much about the planets or the universe?
+[13:02:43]
+u0cd370a43f040bf5c997deef148234aa:
+Whoa, cool! I know he seemed to be quite the animal lover.
+[13:02:53]
+u0cd370a43f040bf5c997deef148234aa:
+That is a lot! And in 2002 Germany gave them legal rights.
+[13:03:03]
+u0cd370a43f040bf5c997deef148234aa:
+I wonder if the immortal jellyfish needs protecting... being immortal and all.
+[13:03:17]
+u0cd370a43f040bf5c997deef148234aa:
+Well, they are good at helping people adjust to new situations, too.
+[13:03:20]
+u0cd370a43f040bf5c997deef148234aa:
+Or people with anxiety and depression, or kids with autism.
+[13:04:13]
+u0cd370a43f040bf5c997deef148234aa:
+Tuna can get quite large, too. It's cool how big some fish get.
+[13:04:29]
+u0cd370a43f040bf5c997deef148234aa:
+Fascinating! In japan, there are more pets than there are children under 15.
+[13:04:

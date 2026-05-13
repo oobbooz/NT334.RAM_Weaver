@@ -6,9 +6,11 @@ bằng ngôn ngữ tự nhiên thông qua LLM.
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import os
+import re
 import sys
 
 from client import BaseLLMClient
@@ -18,7 +20,114 @@ from prompts import FORENSIC_QUERY_SYSTEM_PROMPT, FORENSIC_QUERY_USER_TEMPLATE
 
 log = logging.getLogger("ram_weaver.llm.query_engine")
 
-_HISTORY_OUTPUT_PATH = "./output/query_history.json"
+_HISTORY_OUTPUT_PATH = "./output_s3/query_history.json"
+
+# ---------------------------------------------------------------------------
+# Timestamp helpers
+# ---------------------------------------------------------------------------
+
+_VN_UTC_OFFSET = 7 * 3600  # UTC+7
+
+_TIME_AFTER_RE = re.compile(
+    r"(?:after|from|since|sau)\s+"
+    r"(?:\w+\s+\w+\s+\d+\s+\d{4}\s+)?(\d{1,2}):(\d{2})(?::(\d{2}))?",
+    re.IGNORECASE,
+)
+_TIME_BEFORE_RE = re.compile(
+    r"(?:before|until|trước)\s+"
+    r"(?:\w+\s+\w+\s+\d{1,2}\s+\d{4}\s+)?(\d{1,2}):(\d{2})(?::(\d{2}))?",
+    re.IGNORECASE,
+)
+
+
+def _parse_hms(m: re.Match) -> int:
+    h, mn, s = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+    return h * 3600 + mn * 60 + s
+
+
+def _chunk_tod_vn(chunk: str) -> int | None:
+    """Trả về giây-trong-ngày (VN) của createdTime đầu tiên trong chunk."""
+    for raw in re.findall(r'"createdTime"\s*:\s*(\d+)', chunk):
+        ts = int(raw)
+        if ts > 1_000_000_000_000:
+            ts //= 1000
+        if ts < 1_000_000_000:
+            continue
+        return (ts + _VN_UTC_OFFSET) % 86400
+    return None
+
+
+def _inject_vn_timestamps(memory_data: str) -> str:
+    """Thêm field _vnTime (đã convert) vào mỗi createdTime trong data.
+
+    Giúp LLM đọc thẳng giờ VN thay vì tự tính từ Unix ms.
+    Ví dụ: "createdTime":1778652021082
+        →  "createdTime":1778652021082,"_vnTime":"2026-05-13 13:00:21 ICT"
+    """
+    def _replace(m: re.Match) -> str:
+        ct = int(m.group(1))
+        if ct < 1_000_000_000_000:
+            return m.group(0)  # không phải ms timestamp → giữ nguyên
+        ts_s = ct // 1000
+        try:
+            vn_dt = datetime.datetime.utcfromtimestamp(ts_s) + datetime.timedelta(hours=7)
+            tag = f',\"_vnTime\":\"{vn_dt.strftime("%Y-%m-%d %H:%M:%S")} ICT\"'
+        except Exception:
+            return m.group(0)
+        return m.group(0) + tag
+
+    return re.sub(r'"createdTime"\s*:\s*(\d+)', _replace, memory_data)
+
+
+def _prefilter_chunks(memory_data: str, query: str) -> tuple[str, str]:
+    """Lọc chunk theo điều kiện thời gian rút ra từ query.
+
+    Returns:
+        (filtered_data, note)
+    """
+    after_m = _TIME_AFTER_RE.search(query)
+    before_m = _TIME_BEFORE_RE.search(query)
+
+    if not after_m and not before_m:
+        return memory_data, ""
+
+    after_sec = _parse_hms(after_m) if after_m else None
+    before_sec = _parse_hms(before_m) if before_m else None
+
+    chunks = memory_data.split("---CHUNK---")
+    kept: list[str] = []
+    skipped = 0
+
+    for chunk in chunks:
+        tod = _chunk_tod_vn(chunk)
+        if tod is None:
+            kept.append(chunk)  # không có timestamp → giữ (metadata)
+            continue
+        if after_sec is not None and tod <= after_sec:
+            skipped += 1
+            continue
+        if before_sec is not None and tod >= before_sec:
+            skipped += 1
+            continue
+        kept.append(chunk)
+
+    note_parts = []
+    if after_sec is not None:
+        h, r = divmod(after_sec, 3600)
+        note_parts.append(f"after {h:02d}:{r//60:02d}:{r%60:02d} ICT")
+    if before_sec is not None:
+        h, r = divmod(before_sec, 3600)
+        note_parts.append(f"before {h:02d}:{r//60:02d}:{r%60:02d} ICT")
+
+    note = (
+        f"[Pre-filter: kept {len(kept)}/{len(chunks)} chunks "
+        f"({', '.join(note_parts)}); skipped {skipped}]"
+    )
+    log.info(note)
+    print(f"  🔎 {note}", flush=True)
+    return "---CHUNK---".join(kept), note
+
+_HISTORY_OUTPUT_PATH = "./output_s3/query_history.json"
 
 
 def _print_answer(answer: str) -> None:
@@ -30,9 +139,9 @@ def _print_answer(answer: str) -> None:
 
 
 def _save_answer(query: str, answer: str, index: int) -> None:
-    """Lưu từng answer ra file riêng trong output/ ngay sau khi nhận được."""
-    os.makedirs("./output", exist_ok=True)
-    path = f"./output/answer_{index:03d}.txt"
+    """Lưu từng answer ra file riêng trong output_s3/ ngay sau khi nhận được."""
+    os.makedirs("./output_s3", exist_ok=True)
+    path = f"./output_s3/answer_{index:03d}.txt"
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(f"Query: {query}\n\n")
         fh.write(answer)
@@ -75,6 +184,12 @@ class ForensicQueryEngine:
     def query(self, investigator_query: str) -> str:
         """Gửi câu hỏi điều tra và trả về kết quả phân tích từ LLM.
 
+        Pipeline:
+          1. Pre-filter chunks theo điều kiện thời gian (nếu có) → giảm input size
+          2. Inject _vnTime đã convert sẵn vào mỗi createdTime → LLM không tự tính
+          3. Truncate nếu vẫn vượt max_input_chars
+          4. Gửi LLM
+
         Raises:
             RuntimeError: Nếu chưa load memory data.
         """
@@ -83,7 +198,13 @@ class ForensicQueryEngine:
                 "Chua load memory data. Goi load_memory_file() truoc."
             )
 
-        data = self._memory_data
+        # Bước 1: Pre-filter theo thời gian (Python lọc chính xác)
+        data, _note = _prefilter_chunks(self._memory_data, investigator_query)
+
+        # Bước 2: Inject _vnTime đã convert → LLM đọc thẳng, không hallucinate
+        data = _inject_vn_timestamps(data)
+
+        # Bước 3: Truncate nếu cần
         if len(data) > self.cfg.max_input_chars:
             log.warning(
                 "Memory data (%d chars) > limit (%d). Truncating.",
@@ -107,8 +228,8 @@ class ForensicQueryEngine:
         """REPL tương tác – mỗi câu hỏi/đáp án được lưu và flush ngay.
 
         - Kết quả flush stdout ngay (không bị buffer terminal cắt).
-        - Mỗi answer được lưu riêng vào output/answer_NNN.txt.
-        - Toàn bộ lịch sử lưu vào output/query_history.json khi thoát.
+        - Mỗi answer được lưu riêng vào output_s3/answer_NNN.txt.
+        - Toàn bộ lịch sử lưu vào output_s3/query_history.json khi thoát.
         - Gõ 'save' để xem đường dẫn file vừa lưu.
         - Gõ 'history' để xem lại tất cả câu hỏi đã hỏi trong session.
         """
@@ -173,7 +294,7 @@ class ForensicQueryEngine:
                 # Lưu answer ra file ngay lập tức
                 idx = len(history) + 1
                 _save_answer(raw, answer, idx)
-                last_save_path = f"./output/answer_{idx:03d}.txt"
+                last_save_path = f"./output_s3/answer_{idx:03d}.txt"
 
                 history.append({"query": raw, "answer": answer})
 
