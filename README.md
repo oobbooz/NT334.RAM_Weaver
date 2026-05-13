@@ -190,8 +190,8 @@ Các script experiment có sẵn để tái hiện các kết quả trong bài b
 
   - **Input**: File `s3_queries.json` chứa danh sách các câu hỏi điều tra.
   - **Output**:
-    - Các câu trả lời chi tiết: `output/s3_answer_<id>.txt`
-    - Kết quả tổng hợp: `output/s3_results.json`
+    - Các câu trả lời chi tiết: `output_s3/s3_answer_<id>.txt`
+    - Kết quả tổng hợp: `output_s3/s3_results.json`
 
 Ghi chú:
 
