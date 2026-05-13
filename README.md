@@ -123,7 +123,7 @@ python llm/llm_runner.py interactive ./output/amc/amc_output.txt
 
 ---
 
-### Chạy các experiment (S1, S2)
+### Chạy các experiment (S1, S2, S3)
 
 Các script experiment có sẵn để tái hiện các kết quả trong bài báo.
 
