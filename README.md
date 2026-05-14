@@ -202,6 +202,16 @@ Outputs:
 
 - Per-query answers saved as `./output/s3_answer_###.txt`.
 - Summary saved as `./output/s3_summary.json` with keys `n`, `emr`, `avg_token_f1`, `avg_time_s`.
+  
+### Dashboard
+Cài đặt Streamlit
+```
+pip install streamlit
+```
+Chạy
+```
+streamlit run llm/llm_runner_ui.py
+```
 
 ## Cấu trúc thư mục chính
 
