@@ -3,7 +3,8 @@ __pycache__/
 .env
 
 # dữ liệu nặng
-output/
+output/amc/
+output/restore/
 vad_dumps/
 source/
 *.raw

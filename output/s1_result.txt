@@ -1,0 +1,6 @@
+S1 AMC Efficacy Result
+Dump: dumps/msg_0001.raw  PID: 5608
+
+Baseline 1 (naïve strings): size=47353.0KB snr=-50.90dB feasible=False init_cer=123069.61 final_cer=N/A
+Baseline 2 (AME + strings): size=1247.8KB snr=-35.11dB feasible=False init_cer=3243.10 final_cer=N/A
+RAM-Weaver (full AMC): size=5.8KB snr=-11.76dB feasible=True init_cer=14.01 final_cer=0.1168
