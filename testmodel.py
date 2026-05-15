@@ -9,13 +9,8 @@ for p in [str(ROOT), str(ROOT / "llm")]:
         sys.path.insert(0, p)
 
 _env = ROOT / ".env"
-if _env.is_file():
-    for line in _env.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+from config import load_env
+load_env(_env)
 
 from config import LLMConfig
 from llm.client import create_client

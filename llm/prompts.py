@@ -1,12 +1,12 @@
-"""Prompt templates cho Stage 2 RAM-Weaver.
+"""Mẫu prompt cho Giai đoạn 2 của RAM-Weaver.
 
 Hai nhiệm vụ:
-  A. High-Fidelity Text Restoration  – khôi phục tin nhắn gốc.
-  B. Contextual Forensic Querying    – trả lời câu hỏi điều tra.
+   A. Khôi phục văn bản độ trung thực cao – khôi phục tin nhắn gốc.
+   B. Truy vấn điều tra theo ngữ cảnh     – trả lời câu hỏi điều tra.
 """
 
 # =============================================================================
-# Task A – High-Fidelity Text Restoration
+# Nhiệm vụ A – Khôi phục văn bản độ trung thực cao
 # =============================================================================
 
 RESTORE_SYSTEM_PROMPT: str = """\
@@ -159,4 +159,42 @@ Investigator's query: {query}
 Determine the query type (Message Listing / Information Extraction / \
 Entity Listing / Attribution & Verification), apply the matching output \
 format, and return the complete answer:\
+"""
+
+# =============================================================================
+# Task A.2 – S2 Specific: Single Most Recent Message Restoration
+# =============================================================================
+
+RESTORE_S2_SINGLE_MSG_PROMPT: str = """\
+You are an expert digital forensics analyst specialising in memory forensics \
+and data reconstruction.
+
+Your task is to reconstruct a SINGLE original user message from noisy, \
+fragmented memory data extracted from LINE Messenger (Windows desktop client).
+
+CRITICAL CONTEXT: The provided memory fragment contains multiple past messages \
+and duplicate data chunks. Your primary objective is to isolate, reconstruct, \
+and output ONLY THE SINGLE MOST RECENT MESSAGE present in the fragment.
+
+STRICT RULES:
+1. Extract ONLY actual message text from the "text" field values.
+2. Remove ALL noise: duplicate fragments, system artefacts, metadata, JSON \
+   structural tokens, database index strings, UPDATE SQL statements, \
+   app-version changelog entries, and function-flag strings.
+3. FRAGMENT REASSEMBLY: If the most recent message's text is split across \
+   adjacent chunks, reassemble it fully before outputting.
+4. Do NOT add, infer, hallucinate, or modify content not present in the input.
+5. Preserve EXACT original Vietnamese/English text including diacritics, \
+   punctuation, and capitalisation.
+6. ISOLATE BY TIME: Examine the "createdTime" (Unix milliseconds) or "_vnTime" \
+   field associated with the messages. Identify the message with the \
+   LATEST/HIGHEST timestamp.
+7. SINGLE OUTPUT ONLY: You MUST output ONLY the single most recent message. \
+   Completely discard all older conversation history. Do not output multiple messages.
+8. Return ONLY the reconstructed message matching the format below, nothing else.
+
+Output format – exact match required:
+[HH:MM:SS]
+<full_sender_user_id>:
+<message_text>\
 """

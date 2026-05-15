@@ -35,7 +35,7 @@ pip install volatility3
 
 ### 2) Chuẩn bị `.env`
 
-Tạo/chỉnh file `.env`, sau đó điền giá trị thật:
+Copy file `.env.example` thành `.env`, sau đó điền giá trị thật:
 
 - `PYTHON_BIN`: Python dùng cho script pipeline.
 - `RAM_WEAVER_DUMP_PATH`: đường dẫn file dump mặc định.
@@ -66,6 +66,8 @@ Tạo/chỉnh file `.env`, sau đó điền giá trị thật:
   - `google/gemma-3-4b-it`  (EMR=30%)
 
 `run_pipeline.sh` sẽ tự load `.env` nếu file tồn tại.
+
+Ghi chú: Các entrypoint trong `amc/` và `llm/` cũng sẽ tự load `.env` ở thư mục gốc project (cùng cấp với `config.py`).
 
 ---
 
@@ -150,10 +152,10 @@ Các script experiment có sẵn để tái hiện các kết quả trong bài b
     - `--skip-llm` : chỉ chạy preprocessing (AMC/AME/etc.) mà không gọi LLM.
 
 - `experiment_s2.py` — S2: Single Message Restoration Accuracy (Bảng 2)
-  - Chế độ A (đã có sẵn chunk files):
+  - Chế độ A (trong `output/amc/`):
 
     ```bash
-    python experiment_s2.py --chunks-dir chunks/ --gt-file ground_truth.txt [--limit 10] [--throttle 1.0]
+    python experiment_s2.py --chunks-dir output/amc --gt-file ground_truth.txt [--limit 10] [--throttle 1.0]
     ```
 
   - Chế độ B (có dumps, chạy AMC trên từng dump):
@@ -165,7 +167,7 @@ Các script experiment có sẵn để tái hiện các kết quả trong bài b
   - Ví dụ:
 
     ```bash
-    python experiment_s2.py --chunks-dir chunks/ --gt-file ground_truth.txt --limit 10
+    python experiment_s2.py --chunks-dir output/amc --gt-file ground_truth.txt --limit 10
     python experiment_s2.py --dumps-dir dumps/ --pid 2528 --gt-file ground_truth.txt
     ```
 

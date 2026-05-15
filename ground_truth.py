@@ -1,7 +1,7 @@
 import csv
 
 with open("train.csv", encoding="utf-8") as f, \
-     open("messages.txt", "w", encoding="utf-8") as out:
+     open("ground_truth.txt", "w", encoding="utf-8") as out:
     reader = csv.reader(f)
     count = 0
     for row in reader:
@@ -10,5 +10,5 @@ with open("train.csv", encoding="utf-8") as f, \
             if text:
                 out.write(text + "\n")
                 count += 1
-                if count >= 10:
+                if count >= 20:
                     break

@@ -8,24 +8,27 @@ Với mỗi message trong Amazon Reviews dataset:
   4. Tính EMR và CER tổng hợp như Table 2 trong paper
 
 Chuẩn bị trước khi chạy:
-  - Chạy send_and_dump.py trên Windows VM để có dumps/ và messages.txt
-  - Hoặc chạy AMC trước để có chunks/
+  - Chạy send_and_dump.py trên Windows VM để có dumps/ và ground_truth.txt
+    - AMC sẽ lưu output theo message vào output/amc/ (vd: s2_msg_0001.txt, ...)
 
-Chế độ A — Đã có sẵn chunk files:
-    chunks/msg_0001.txt  ← AMC output của message 1
-    chunks/msg_0002.txt
+Chế độ A — Đã có sẵn AMC output files (khuyến nghị):
+    output/amc/s2_msg_0001.txt  ← AMC output của message 1
+    output/amc/s2_msg_0002.txt
     ...
-    messages.txt         ← mỗi dòng là 1 review text gốc (thứ tự khớp chunks/)
+    ground_truth.txt            ← mỗi dòng là 1 review text gốc (thứ tự khớp các file trên)
 
-    python experiment_s2.py --chunks-dir chunks/ --gt-file messages.txt
+    python experiment_s2.py --chunks-dir output/amc --gt-file ground_truth.txt
 
-Chế độ B — Có dump files, chạy AMC trực tiếp:
+Chế độ B — Có dump files, chạy AMC trực tiếp (sẽ reuse cache nếu đã có):
     dumps/msg_0001.raw   ← dump RAM sau khi gửi message 1
     dumps/msg_0002.raw
     ...
-    messages.txt
+   ground_truth.txt
 
-    python experiment_s2.py --dumps-dir dumps/ --pid 6864 --gt-file messages.txt
+    python experiment_s2.py --dumps-dir dumps/ --pid 8092 --gt-file ground_truth.txt
+
+    Ghi chú: nếu file `s2_<dump_stem>.txt` đã tồn tại (thường ở output/amc/)
+    thì script sẽ đọc lại file đó và bỏ qua bước chạy AMC tương ứng.
 
 Options:
     --limit 10           Chỉ chạy 10 message đầu (test nhanh)
@@ -37,6 +40,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -46,14 +50,9 @@ for p in [str(ROOT), str(ROOT / "llm"), str(ROOT / "pipeline")]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-_env = ROOT / ".env"
-if _env.is_file():
-    for line in _env.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+# Load .env (project root) – không override biến môi trường đã set
+from config import load_env
+load_env(ROOT / ".env")
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 
@@ -63,15 +62,25 @@ from llm.metrics import character_error_rate as cer, evaluate
 
 # ── Load dữ liệu ──────────────────────────────────────────────────────────────
 
-def load_chunks_from_dir(chunks_dir: str, limit: int | None = None) -> list[str]:
-    """Đọc tất cả .txt file trong chunks_dir, sắp xếp theo tên."""
-    files = sorted(Path(chunks_dir).glob("*.txt"))
+def list_chunk_files(chunks_dir: str, limit: int | None = None) -> list[Path]:
+    """List .txt files trong chunks_dir, sắp xếp theo tên."""
+    base = Path(chunks_dir)
+    preferred = sorted(base.glob("s2_msg_*.txt"))
+    if preferred:
+        files = preferred
+    else:
+        alt = sorted(base.glob("msg_*.txt"))
+        files = alt if alt else sorted(base.glob("*.txt"))
     if limit:
         files = files[:limit]
-    chunks = []
-    for f in files:
-        chunks.append(f.read_text(encoding="utf-8"))
-    print(f"  Đọc {len(chunks)} chunk files từ {chunks_dir}")
+    return files
+
+
+def load_chunks_from_dir(chunks_dir: str, limit: int | None = None) -> list[str]:
+    """Đọc tất cả .txt file trong chunks_dir, sắp xếp theo tên."""
+    files = list_chunk_files(chunks_dir, limit=limit)
+    chunks = [f.read_text(encoding="utf-8") for f in files]
+    print(f"  Đọc {len(chunks)} AMC output files từ {chunks_dir}")
     return chunks
 
 
@@ -81,60 +90,96 @@ def load_ground_truth(gt_file: str, limit: int | None = None) -> list[str]:
     lines = [l.strip() for l in lines if l.strip()]
     if limit:
         lines = lines[:limit]
-    print(f"  Đọc {len(lines)} ground truth messages từ {gt_file}")
+    print(f"  Đọc {len(lines)} ground truth từ {gt_file}")
     return lines
 
 
-def run_amc_on_dump(dump_path: str, pid: int) -> str:
-    """Chạy full AMC pipeline trên một dump file, trả về chunk text."""
+def _find_cached_amc_output(output_name: str) -> Path | None:
+    """Tìm file AMC output đã có sẵn.
+
+    Ưu tiên thư mục cấu hình qua RAM_WEAVER_OUTPUT_DIR (AMCConfig.output_dir),
+    fallback về ./output/amc (layout thường gặp trong repo này).
+    """
+    try:
+        from config import AMCConfig
+    except Exception:
+        AMCConfig = None  # type: ignore[assignment]
+
+    candidate_dirs: list[Path] = []
+    if AMCConfig is not None:
+        try:
+            cfg = AMCConfig()
+            candidate_dirs.append(Path(cfg.output_dir))
+        except Exception:
+            pass
+
+    # Fallbacks phổ biến trong workspace này
+    candidate_dirs.extend(
+        [
+            ROOT / "output" / "amc",
+            ROOT / "output",
+        ]
+    )
+
+    for base in candidate_dirs:
+        try:
+            p = base / output_name
+            if p.is_file():
+                return p
+        except Exception:
+            continue
+    return None
+
+
+def run_amc_on_dump(dump_path: str, pid: int) -> tuple[str, bool, str]:
+    """Chạy đầy đủ quy trình AMC trên một file dump.
+
+    Trả về bộ 3: (chunk_text, reused_cache, path).
+    """
     from config import AMCConfig
     from amc.pipeline import AdaptiveMemoryCarver
 
+    output_name = f"s2_{Path(dump_path).stem}.txt"
+    cached = _find_cached_amc_output(output_name)
+    if cached is not None:
+        try:
+            return cached.read_text(encoding="utf-8", errors="ignore"), True, str(cached)
+        except Exception:
+            # Nếu đọc lỗi thì fallback chạy lại AMC
+            pass
+
     cfg = AMCConfig()
     amc = AdaptiveMemoryCarver(cfg)
-    output_path = amc.run(dump_path, pid, output_name=f"s2_{Path(dump_path).stem}.txt")
+    output_path = amc.run(dump_path, pid, output_name=output_name)
     if not output_path or not os.path.isfile(output_path):
-        return ""
-    return Path(output_path).read_text(encoding="utf-8")
+        return "", False, output_path or ""
+    return Path(output_path).read_text(encoding="utf-8", errors="ignore"), False, output_path
 
 
 def extract_new_message_only(
     current_amc_output: str,
     previous_amc_output: str | None = None,
 ) -> str:
-    """Extract chỉ message MỚI từ dump hiện tại.
-    
-    So sánh với dump trước, bỏ đi messages cũ đã có.
-    Lấy chỉ content mới xuất hiện.
-    """
+    """Extract chỉ message MỚI từ dump hiện tại."""
     if not previous_amc_output:
-        # Lần đầu tiên: trả về toàn bộ
         return current_amc_output
     
-    # Split by ---CHUNK--- separator (nếu có)
     curr_chunks = current_amc_output.split("---CHUNK---")
     prev_chunks = previous_amc_output.split("---CHUNK---")
     
-    # Tìm chunks mới (không có trong previous)
     new_chunks = []
     for chunk in curr_chunks:
         chunk_clean = chunk.strip()
         if not chunk_clean:
             continue
-        # Nếu chunk này không tồn tại trong previous, thêm vào
         if chunk_clean not in previous_amc_output:
             new_chunks.append(chunk_clean)
     
-    # Nếu không tìm được chunk mới qua exact match, 
-    # lấy chunk cuối cùng từ current (có thể là message mới)
     if not new_chunks and curr_chunks:
-        # Lấy chunks cuối cùng từ current
         last_chunk = curr_chunks[-1].strip()
         if last_chunk and last_chunk not in previous_amc_output:
             new_chunks.append(last_chunk)
     
-    # Nếu vẫn không tìm được, trả về toàn bộ current
-    # (fallback - có thể message mới được merged với messages cũ)
     if not new_chunks:
         return current_amc_output
     
@@ -148,7 +193,7 @@ def make_llm_caller():
     try:
         from config import LLMConfig
         from llm.client import create_client
-        from llm.prompts import RESTORE_SYSTEM_PROMPT, RESTORE_USER_TEMPLATE
+        from llm.prompts import RESTORE_S2_SINGLE_MSG_PROMPT, RESTORE_USER_TEMPLATE
     except ImportError as e:
         print(f"[ERROR] Không import được LLM modules: {e}")
         sys.exit(1)
@@ -159,41 +204,70 @@ def make_llm_caller():
 
     def call(fragment: str) -> str:
         user_msg = RESTORE_USER_TEMPLATE.format(fragment=fragment[:cfg.max_input_chars])
-        result = llm.generate(RESTORE_SYSTEM_PROMPT, user_msg)
+        result = llm.generate(RESTORE_S2_SINGLE_MSG_PROMPT, user_msg)
         return (result or "").strip()
 
     return call
+
+def safe_llm_call(llm_caller, chunk, max_retries=10, throttle=0.5):
+    """
+    Hàm bọc gọi API an toàn, xử lý Rate Limit, Quota và cả Server Overload (503).
+    """
+    import time
+    for attempt in range(max_retries):
+        try:
+            result = llm_caller(chunk)
+            
+            time.sleep(max(5, throttle)) 
+            
+            return result
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            if any(k in error_msg for k in ["429", "quota", "rate limit", "exhausted", "503", "unavailable", "high demand", "500"]):
+                wait_time = 15 * (2 ** attempt) 
+                print(f"\n    [!] API đang bận/quá tải (Lỗi 50x/429). Tự động chờ {wait_time}s rồi thử lại (Lần {attempt+1}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                raise e
+                
+    print("\n    [!] Bỏ qua do API lỗi liên tục quá nhiều lần.")
+    return ""
 
 
 # ── Chạy experiment ───────────────────────────────────────────────────────────
 
 def extract_message_text(llm_output: str) -> str:
-    """Extract chỉ message text từ LLM output.
-    
-    LLM trả về format: [HH:MM:SS] <uid>: <message_text>
-    Nhưng ground truth chỉ có <message_text>
-    
-    Function này loại bỏ timestamp và UID để so sánh chỉ message text.
-    """
+    """Extract chỉ message text từ LLM output."""
     text = llm_output.strip()
-    
-    # Pattern: [HH:MM:SS] <uid>: <message>
-    # Tìm ": " và lấy phần sau nó
-    if "]: " in text:
-        # Format: [14:16:25] u812...: message
-        parts = text.split("]: ", 1)
-        if len(parts) == 2:
-            msg_part = parts[1]
-            # Loại bỏ UID trước :
-            if ": " in msg_part:
-                msg_text = msg_part.split(": ", 1)[1]
-                return msg_text
-            return msg_part
-    elif ": " in text:
-        # Fallback: chỉ có <uid>: <message>
-        return text.split(": ", 1)[1]
-    
-    return text
+    if not text:
+        return ""
+
+    uid_re = r"(?:u[a-f0-9]{8,}|user_id_placeholder|[A-Za-z0-9_]{10,})"
+    ts_only_re = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]$")
+    uid_only_re = re.compile(rf"^{uid_re}:?$")
+    ts_uid_inline_re = re.compile(rf"^\[\d{{2}}:\d{{2}}:\d{{2}}\]\s*{uid_re}:\s*")
+    ts_inline_re = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]\s*")
+    uid_inline_re = re.compile(rf"^{uid_re}:\s*")
+
+    cleaned_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if ts_only_re.match(line) or uid_only_re.match(line):
+            continue
+
+        line = ts_uid_inline_re.sub("", line)
+        line = ts_inline_re.sub("", line)
+        line = uid_inline_re.sub("", line)
+
+        if line:
+            cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines).strip()
 
 
 def run_experiment(
@@ -201,6 +275,8 @@ def run_experiment(
     ground_truths: list[str],
     llm_caller,
     throttle: float = 0.5,
+    labels: list[str] | None = None,
+    restore_dir: str = "./output/restore",
 ) -> list[dict]:
     """Chạy restore từng chunk, đo EMR/CER."""
     if len(chunks) != len(ground_truths):
@@ -209,15 +285,27 @@ def run_experiment(
         chunks = chunks[:n]
         ground_truths = ground_truths[:n]
 
+    def _safe_label(label: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_.-]+", "_", label).strip("._-") or "item"
+
+    os.makedirs(restore_dir, exist_ok=True)
+
     results = []
     total = len(chunks)
 
     for i, (chunk, ref) in enumerate(zip(chunks, ground_truths), 1):
         print(f"  [{i:>3}/{total}] ", end="", flush=True)
         t0 = time.time()
+        label = None
+        if labels and i <= len(labels):
+            label = _safe_label(labels[i - 1])
+        else:
+            label = f"restored_{i:04d}"
+
         try:
-            hyp_raw = llm_caller(chunk)
-            # Extract chỉ message text, loại bỏ timestamp + UID
+            # SỬ DỤNG SAFE_LLM_CALL Ở ĐÂY THAY VÌ GỌI TRỰC TIẾP
+            hyp_raw = safe_llm_call(llm_caller, chunk, throttle=throttle)
+            
             hyp = extract_message_text(hyp_raw)
             elapsed = time.time() - t0
             exact = hyp == ref
@@ -233,23 +321,31 @@ def run_experiment(
                 "idx": i,
                 "reference": ref,
                 "hypothesis": hyp,
+                "raw_output": hyp_raw,
                 "exact": exact,
                 "cer_score": cer_score,
                 "elapsed": elapsed,
             })
+            out_path = os.path.join(restore_dir, f"{label}.txt")
+            with open(out_path, "w", encoding="utf-8") as fh:
+                fh.write(f"=== Restored Block {i} ===\n")
+                fh.write(hyp_raw.strip())
+                fh.write("\n")
         except Exception as exc:
             print(f"✗  LỖI: {exc}")
             results.append({
                 "idx": i,
                 "reference": ref,
                 "hypothesis": "",
+                "raw_output": "",
                 "exact": False,
                 "cer_score": float("inf"),
                 "elapsed": 0.0,
             })
-
-        if i < total:
-            time.sleep(throttle)
+            out_path = os.path.join(restore_dir, f"{label}.txt")
+            with open(out_path, "w", encoding="utf-8") as fh:
+                fh.write(f"=== Restored Block {i} ===\n")
+                fh.write("\n")
 
     return results
 
@@ -275,7 +371,7 @@ def print_results(results: list[dict], model_name: str) -> None:
     print("KẾT QUẢ S2 — Single Message Restoration Accuracy")
     print("=" * 70)
     print(f"  Model    : {model_name}")
-    print(f"  Messages : {n}")
+    print(f" ground_truth : {n}")
     print(f"  EMR      : {emr*100:.1f}%  ({exact_count}/{n} exact match)")
     print(f"  Avg CER  : {avg_cer:.2f}")
     print(f"  Tổng time: {total_time:.1f}s  (avg {total_time/n:.1f}s/msg)")
@@ -286,7 +382,6 @@ def print_results(results: list[dict], model_name: str) -> None:
 def save_results(results: list[dict], model_name: str) -> None:
     os.makedirs("./output", exist_ok=True)
     out_path = f"./output/s2_result_{model_name.replace('/', '_').replace(':', '_')}.txt"
-    # Compute summary metrics
     refs = [r["reference"] for r in results]
     hyps = [r["hypothesis"] for r in results]
     metrics = evaluate(refs, hyps)
@@ -317,8 +412,11 @@ def save_results(results: list[dict], model_name: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="S2: Single Message Restoration Accuracy")
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--chunks-dir", help="Thư mục chứa chunk .txt files (1 file/message)")
+    mode = parser.add_mutually_exclusive_group(required=False)
+    mode.add_argument(
+        "--chunks-dir",
+        help="Thư mục chứa AMC output .txt files (1 file/message). Ví dụ: output/amc",
+    )
     mode.add_argument("--dumps-dir", help="Thư mục chứa .raw/.dmp files (1 dump/message)")
 
     parser.add_argument("--gt-file", help="File ground truth (1 dòng/message)")
@@ -328,56 +426,103 @@ def main() -> None:
                         help="Delay giữa các API call (giây, mặc định 0.5)")
     args = parser.parse_args()
 
+    # ---- Env defaults (để khỏi phải hard-code / nhập đi nhập lại) ----
+    chunks_dir_env = os.environ.get("RAM_WEAVER_S2_CHUNKS_DIR")
+    dumps_dir_env = os.environ.get("RAM_WEAVER_S2_DUMPS_DIR")
+
+    if args.chunks_dir is not None:
+        chunks_dir = args.chunks_dir
+        dumps_dir = None
+    elif args.dumps_dir is not None:
+        chunks_dir = None
+        dumps_dir = args.dumps_dir
+    elif chunks_dir_env:
+        chunks_dir = chunks_dir_env
+        dumps_dir = None
+    elif dumps_dir_env:
+        chunks_dir = None
+        dumps_dir = dumps_dir_env
+    else:
+        chunks_dir = None
+        dumps_dir = None
+    gt_file = args.gt_file or os.environ.get("RAM_WEAVER_GT_FILE")
+    pid = args.pid
+    if pid is None:
+        pid_env = os.environ.get("RAM_WEAVER_PID")
+        if pid_env and pid_env.isdigit():
+            pid = int(pid_env)
+
+    limit = args.limit
+    if limit is None:
+        limit_env = os.environ.get("RAM_WEAVER_LIMIT")
+        if limit_env and limit_env.isdigit():
+            limit = int(limit_env)
+
+    throttle = args.throttle
+    throttle_env = os.environ.get("RAM_WEAVER_THROTTLE")
+    if throttle_env:
+        try:
+            throttle = float(throttle_env)
+        except ValueError:
+            pass
+
     print("=" * 70)
     print("RAM-Weaver — S2: Single Message Restoration Accuracy")
     print("=" * 70)
 
-    # ── Load dữ liệu ──────────────────────────────────────────────────────────
-    if args.chunks_dir:
-        if not args.gt_file:
-            print("[ERROR] Cần --gt-file khi dùng --chunks-dir")
-            sys.exit(1)
-        print(f"\n[Chế độ A] Chunk files từ {args.chunks_dir}")
-        chunks = load_chunks_from_dir(args.chunks_dir, limit=args.limit)
-        ground_truths = load_ground_truth(args.gt_file, limit=args.limit)
+    labels: list[str] = []
 
-    else:  # --dumps-dir
-        if not args.gt_file or not args.pid:
-            print("[ERROR] Cần --gt-file và --pid khi dùng --dumps-dir")
-            sys.exit(1)
-        print(f"\n[Chế độ B] Chạy AMC trên từng dump trong {args.dumps_dir}")
+    if not chunks_dir and not dumps_dir:
+        print(
+            "[ERROR] Cần chọn ít nhất 1 mode: --chunks-dir hoặc --dumps-dir\n"
+            "  * CLI:  python experiment_s2.py --chunks-dir output/amc --gt-file ground_truth.txt\n"
+            "  * .env: RAM_WEAVER_S2_CHUNKS_DIR=output/amc hoặc RAM_WEAVER_S2_DUMPS_DIR=dumps"
+        )
+        sys.exit(1)
 
-        # Hỗ trợ cả .raw (winpmem) và .dmp (procdump)
-        dump_files = sorted(Path(args.dumps_dir).glob("*.raw"))
+    if chunks_dir:
+        if not gt_file:
+            print("[ERROR] Cần --gt-file hoặc set RAM_WEAVER_GT_FILE khi dùng --chunks-dir")
+            sys.exit(1)
+        print(f"\n[Chế độ A] AMC output files từ {chunks_dir}")
+        chunk_files = list_chunk_files(chunks_dir, limit=limit)
+        chunks = [f.read_text(encoding="utf-8") for f in chunk_files]
+        ground_truths = load_ground_truth(gt_file, limit=limit)
+        labels = [f.stem for f in chunk_files]
+
+    else:
+        if not gt_file or not pid:
+            print("[ERROR] Cần --gt-file/RAM_WEAVER_GT_FILE và --pid/RAM_WEAVER_PID khi dùng --dumps-dir")
+            sys.exit(1)
+        print(f"\n[Chế độ B] Chạy AMC trên từng dump trong {dumps_dir}")
+
+        dump_files = sorted(Path(dumps_dir).glob("*.raw"))
         if not dump_files:
-            dump_files = sorted(Path(args.dumps_dir).glob("*.dmp"))
-        if args.limit:
-            dump_files = dump_files[:args.limit]
+            dump_files = sorted(Path(dumps_dir).glob("*.dmp"))
+        if limit:
+            dump_files = dump_files[:limit]
 
-        ground_truths = load_ground_truth(args.gt_file, limit=args.limit)
+        ground_truths = load_ground_truth(gt_file, limit=limit)
 
-        print(f"  Chạy AMC trên {len(dump_files)} dump files...")
+        print(f"  Chạy AMC trên {len(dump_files)} dump files (tự reuse cache nếu đã có)...")
         chunks = []
-        prev_amc_output = None  # Để track dump trước, lấy chỉ message mới
         for df in dump_files:
             print(f"    AMC: {df.name}...", end=" ", flush=True)
-            chunk = run_amc_on_dump(str(df), args.pid)
+            chunk, reused, path_used = run_amc_on_dump(str(df), pid)
             if chunk:
-                # Extract chỉ message MỚI (DIFF với dump trước)
-                new_chunk = extract_new_message_only(chunk, prev_amc_output)
-                prev_amc_output = chunk  # Save cho lần sau
-                print(f"OK ({len(chunk)/1024:.1f} KB) → {len(new_chunk)/1024:.1f} KB (mới)")
-                chunks.append(new_chunk)
+                tag = "CACHED" if reused else "OK"
+                print(f"{tag} ({len(chunk)/1024:.1f} KB)")
+                chunks.append(chunk)
             else:
-                print("FAIL (chunk rỗng)")
+                note = f" — {path_used}" if path_used else ""
+                print(f"FAIL (chunk rỗng){note}")
                 chunks.append("")
-                prev_amc_output = chunk
+        labels = [df.stem for df in dump_files]
 
     if not chunks:
         print("[ERROR] Không có dữ liệu để chạy.")
         sys.exit(1)
 
-    # ── Tạo LLM caller ────────────────────────────────────────────────────────
     print("\nKhởi tạo LLM client...")
     llm_caller = make_llm_caller()
 
@@ -385,11 +530,15 @@ def main() -> None:
     model = os.environ.get("RAM_WEAVER_LLM_MODEL") or os.environ.get("RAM_WEAVER_GEMINI_MODEL", "gemini-2.5-flash")
     model_name = f"{provider}/{model}"
 
-    # ── Chạy experiment ───────────────────────────────────────────────────────
-    print(f"\nChạy restore {len(chunks)} messages...\n")
-    results = run_experiment(chunks, ground_truths, llm_caller, throttle=args.throttle)
+    print(f"\nChạy restore {len(chunks)} ground truth...\n")
+    results = run_experiment(
+        chunks,
+        ground_truths,
+        llm_caller,
+        throttle=throttle,
+        labels=labels,
+    )
 
-    # ── Kết quả ───────────────────────────────────────────────────────────────
     print_results(results, model_name)
     save_results(results, model_name)
 

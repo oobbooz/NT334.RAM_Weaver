@@ -1,12 +1,12 @@
-"""High-Fidelity Text Restoration – Stage 2, Task A.
+"""Khôi phục văn bản (độ trung thực cao) – Giai đoạn 2, Nhiệm vụ A.
 
-The paper evaluates two restoration strategies:
-- **Single-chunk restore** – each chunk sent individually (good for isolation).
-- **Batch restore** – all chunks merged into a single LLM call for holistic
-  deduplication and chronological sorting.
+Bài báo đánh giá 2 chiến lược khôi phục:
+- **Khôi phục từng chunk**: gửi từng chunk riêng lẻ (dễ cô lập lỗi).
+- **Khôi phục theo batch**: gộp toàn bộ chunk vào 1 lần gọi LLM để khử trùng lặp
+    và sắp xếp theo thời gian.
 
-The paper uses the batch approach (all memory data in one request) for the
-LINE Messenger case study, so :meth:`restore_from_file` is the primary path.
+Trong case study LINE Messenger, tác giả dùng cách batch, nên
+:meth:`restore_from_file` là luồng chính.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ from prompts import (
 
 log = logging.getLogger("ram_weaver.llm.restorer")
 
-_CHUNK_SLEEP_SECONDS = 0.5  # throttle between per-chunk API calls
+_CHUNK_SLEEP_SECONDS = 0.5  # delay giữa các lần gọi API (khi khôi phục từng chunk)
 
 
 class TextRestorer:
-    """Restores clean message text from noisy memory fragments via an LLM.
+    """Khôi phục text tin nhắn sạch từ mảnh dữ liệu nhiễu trong RAM thông qua LLM.
 
-    Args:
-        llm_client: Provider-agnostic LLM client instance.
-        config:     LLM configuration (used for token/char limits).
+    Tham số:
+        llm_client: Client LLM độc lập theo provider.
+        config: Cấu hình LLM (giới hạn token/ký tự).
     """
 
     def __init__(
@@ -46,22 +46,21 @@ class TextRestorer:
         self.cfg = config or LLMConfig()
 
     # ------------------------------------------------------------------ #
-    # Primary path – batch restore (recommended)                          #
+    # Luồng chính – khôi phục theo lô (khuyến nghị)                       #
     # ------------------------------------------------------------------ #
 
     def restore_from_file(self, chunks_file: str) -> list[str]:
-        """Read a chunk file and restore all fragments in a single LLM call.
+        """Đọc file chunk và khôi phục toàn bộ fragment bằng 1 lần gọi LLM.
 
-        This is the approach used in the paper: the entire AMC output is sent
-        to the LLM at once so it can deduplicate across chunks and sort by
-        ``createdTime``.
+        Đây là cách dùng trong bài báo: gửi toàn bộ output AMC vào LLM để
+        LLM có thể khử trùng lặp giữa các chunk và sắp xếp theo ``createdTime``.
 
-        Args:
-            chunks_file: Path to the AMC output file (chunks separated by
+        Tham số:
+            chunks_file: Đường dẫn file output AMC (các chunk được ngăn bằng
                          ``---CHUNK---``).
 
-        Returns:
-            List containing the single restored text block.
+        Trả về:
+            Danh sách chứa 1 khối văn bản đã khôi phục.
         """
         with open(chunks_file, "r", encoding="utf-8") as fh:
             content = fh.read()
@@ -82,17 +81,17 @@ class TextRestorer:
         return [result.strip()]
 
     # ------------------------------------------------------------------ #
-    # Alternative path – per-chunk restore                                #
+    # Luồng thay thế – khôi phục từng chunk                               #
     # ------------------------------------------------------------------ #
 
     def restore(self, memory_fragment: str) -> str:
-        """Restore a single memory fragment.
+        """Khôi phục một mảnh dữ liệu bộ nhớ.
 
-        Args:
-            memory_fragment: Raw text chunk from the AMC output.
+        Tham số:
+            memory_fragment: Chunk text thô lấy từ output AMC.
 
-        Returns:
-            Cleaned, reconstructed message text.
+        Trả về:
+            Nội dung tin nhắn đã làm sạch và ghép lại.
         """
         if len(memory_fragment) > self.cfg.max_input_chars:
             log.warning(
@@ -106,16 +105,16 @@ class TextRestorer:
         return (self.llm.generate(RESTORE_SYSTEM_PROMPT, user_msg) or "").strip()
 
     def restore_batch(self, chunks: list[str]) -> list[str]:
-        """Restore each chunk independently and return a parallel list of results.
+        """Khôi phục từng chunk độc lập và trả về danh sách kết quả tương ứng.
 
-        Useful for evaluation (S2 in the paper) where per-message accuracy
-        metrics (EMR, CER) are computed.
+        Hữu ích cho đánh giá (S2 trong bài báo) khi cần tính thước đo theo từng
+        tin nhắn (EMR, CER).
 
-        Args:
-            chunks: List of raw memory chunks.
+        Tham số:
+            chunks: Danh sách chunk thô.
 
-        Returns:
-            List of restored strings, one per input chunk.
+        Trả về:
+            Danh sách chuỗi đã khôi phục, mỗi phần tử ứng với 1 chunk đầu vào.
         """
         results: list[str] = []
         total = len(chunks)

@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""CLI entry point cho Stage 1 – Adaptive Memory Carver (flat layout).
+"""Điểm vào CLI cho Giai đoạn 1 – Adaptive Memory Carver (flat layout).
 
 Tất cả module (pipeline.py, extractor.py, filtering.py, config.py)
 nằm cùng thư mục với file này. PYTHONPATH được set bởi run_pipeline.sh.
 
-Usage:
+Cách dùng:
     python amc_runner.py <dump_path> <pid>
     # hoặc đặt RAM_WEAVER_DUMP_PATH / RAM_WEAVER_PID trong .env
 """
@@ -15,20 +15,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-
-
-def _load_dotenv(env_file: Path) -> None:
-    """Minimal .env loader – không cần thư viện ngoài."""
-    if not env_file.is_file():
-        return
-    for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(
-            key.strip(), value.strip().strip('"').strip("'")
-        )
 
 
 def main() -> None:
@@ -46,8 +32,9 @@ def main() -> None:
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-    # Load .env từ cùng thư mục
-    _load_dotenv(script_dir / ".env")
+    # Load .env ở project root (không override biến môi trường đã set)
+    from config import load_env  # noqa: PLC0415
+    load_env(project_root / ".env")
 
     # Parse arguments
     dump_path = (
@@ -61,8 +48,8 @@ def main() -> None:
 
     if not dump_path or not pid_raw:
         print(
-            "Usage: python amc_runner.py <dump_path> <pid>\n"
-            "Hoac set RAM_WEAVER_DUMP_PATH va RAM_WEAVER_PID trong .env"
+            "Cách dùng: python amc_runner.py <dump_path> <pid>\n"
+            "Hoặc set RAM_WEAVER_DUMP_PATH và RAM_WEAVER_PID trong .env"
         )
         sys.exit(1)
 

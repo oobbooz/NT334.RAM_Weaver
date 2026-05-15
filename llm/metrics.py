@@ -1,45 +1,46 @@
-"""Evaluation metrics used in the paper (Section 3 & 4).
+"""Các thước đo đánh giá được dùng trong bài báo (Mục 3 & 4).
 
-Paper metrics:
-    * **EMR** (Exact Match Rate)  – percentage of reconstructed messages
-      identical to the original.  Used in S2 (Table 2).
-    * **CER** (Character Error Rate) – Levenshtein edit distance at the
-      character level, normalised by reference length.  Used in S1 & S2.
-    * **SNR delta** – improvement in signal-to-noise ratio after AMC
-      filtering (computed in ``ArtifactFilter.filter``).
+Các thước đo trong bài:
+        * **EMR** (Exact Match Rate) – tỷ lệ tin nhắn khôi phục khớp hoàn toàn
+            với bản gốc. Dùng cho S2 (Bảng 2).
+        * **CER** (Character Error Rate) – khoảng cách chỉnh sửa Levenshtein ở
+            mức ký tự, chuẩn hoá theo độ dài tham chiếu. Dùng cho S1 & S2.
+        * **SNR delta** – mức cải thiện SNR sau khi lọc AMC
+            (tính trong ``ArtifactFilter.filter``).
 
-These helpers allow operators to reproduce the paper's evaluation
-pipeline on their own datasets.
+Các hàm tiện ích này giúp người vận hành tái hiện quy trình đánh giá của bài
+báo trên tập dữ liệu của họ.
 """
 
 from __future__ import annotations
 
 
 def snr_db(signal_bytes: int, total_bytes: int) -> float:
-    """Compute SNR in dB as used in the paper (Table 1).
+    r"""Tính SNR theo đơn vị dB như trong bài báo (Bảng 1).
 
-    SNR = 20 * log10(signal_bytes / total_bytes)
+    $$\text{SNR} = 10 \cdot \log_{10}(\tfrac{\text{signal}}{\text{total}})$$
 
-    where ``signal_bytes`` is the length of useful/clean output and
-    ``total_bytes`` is the length of the raw extracted text fed to the filter.
-    The paper reports:
-      - Baseline 1 (naïve strings): SNR ≈ -47.33 dB
-      - RAM-Weaver full pipeline:   SNR ≈ -10.53 dB
-      - Improvement:                        ≈ +36.8 dB  (≈ 37 dB)
+    Trong đó ``signal_bytes`` là độ dài output hữu ích/sạch, còn ``total_bytes``
+    là độ dài text thô được đưa vào bước lọc.
 
-    Args:
-        signal_bytes: Number of bytes (or chars) of useful output.
-        total_bytes:  Number of bytes (or chars) of raw input.
+    Bài báo báo cáo:
+      - Baseline 1 (strings đơn giản): SNR ≈ -47.33 dB
+      - RAM-Weaver chạy đủ quy trình:  SNR ≈ -10.53 dB
+      - Cải thiện:                           ≈ +36.8 dB (xấp xỉ 37 dB)
 
-    Returns:
-        SNR in dB (negative value; less negative = better).
+    Tham số:
+        signal_bytes: Số byte (hoặc ký tự) của output hữu ích.
+        total_bytes: Số byte (hoặc ký tự) của input thô.
+
+    Trả về:
+        SNR (dB). Giá trị thường âm; càng ít âm thì càng tốt.
     """
     import math
     if total_bytes <= 0:
         raise ValueError("total_bytes must be positive.")
     if signal_bytes <= 0:
         return float("-inf")
-    return 20 * math.log10(signal_bytes / total_bytes)
+    return 10 * math.log10(signal_bytes / total_bytes)
 
 
 def snr_delta_db(
@@ -48,13 +49,13 @@ def snr_delta_db(
     signal_bytes_before: int,
     total_bytes_before: int,
 ) -> float:
-    """Compute SNR improvement (delta) between two pipeline stages.
+    """Tính mức cải thiện SNR (delta) giữa 2 giai đoạn trong quy trình.
 
-    Returns ``snr_after - snr_before`` in dB.  A positive value means
-    the SNR improved (less noise relative to signal).
+    Trả về ``snr_after - snr_before`` theo dB. Giá trị dương nghĩa là SNR
+    được cải thiện (ít nhiễu hơn so với tín hiệu).
 
-    The paper claims ~37 dB improvement when comparing the full AMC
-    pipeline to naïve ``strings`` baseline.
+    Bài báo nêu ~37 dB cải thiện khi so sánh AMC chạy đầy đủ với baseline
+    ``strings`` đơn giản.
     """
     return snr_db(signal_bytes_after, total_bytes_after) - snr_db(
         signal_bytes_before, total_bytes_before
@@ -63,18 +64,17 @@ def snr_delta_db(
 
 
 def character_error_rate(reference: str, hypothesis: str) -> float:
-    """Compute CER (Levenshtein distance / len(reference)).
+    """Tính CER (khoảng cách Levenshtein / len(reference)).
 
-    A CER of 0.0 means perfect reconstruction; 1.0 means every character
-    is wrong.  Values > 1.0 are possible when the hypothesis is longer than
-    the reference.
+    CER = 0.0 nghĩa là khôi phục hoàn hảo; CER = 1.0 nghĩa là sai toàn bộ ký tự.
+    CER > 1.0 có thể xảy ra nếu chuỗi dự đoán dài hơn chuỗi tham chiếu.
 
-    Args:
-        reference:  Ground-truth message string.
-        hypothesis: Reconstructed message string from the LLM.
+    Tham số:
+        reference: Chuỗi ground-truth.
+        hypothesis: Chuỗi khôi phục từ LLM.
 
-    Returns:
-        CER as a float.  Returns 0.0 if both strings are empty.
+    Trả về:
+        CER (float). Trả về 0.0 nếu cả hai chuỗi đều rỗng.
     """
     if not reference and not hypothesis:
         return 0.0
@@ -99,18 +99,7 @@ def character_error_rate(reference: str, hypothesis: str) -> float:
 
 
 def exact_match_rate(references: list[str], hypotheses: list[str]) -> float:
-    """Compute EMR across a list of reference/hypothesis pairs.
-
-    Args:
-        references:  Ground-truth message strings.
-        hypotheses:  Reconstructed strings (same order as references).
-
-    Returns:
-        Fraction of pairs that are character-for-character identical.
-
-    Raises:
-        ValueError: If the lists have different lengths.
-    """
+    """Tính EMR trên danh sách cặp reference/hypothesis."""
     if len(references) != len(hypotheses):
         raise ValueError(
             f"Length mismatch: {len(references)} references vs "
@@ -123,17 +112,17 @@ def exact_match_rate(references: list[str], hypotheses: list[str]) -> float:
 
 
 def average_cer(references: list[str], hypotheses: list[str]) -> float:
-    """Compute mean CER over a paired list.
+    """Tính CER trung bình trên danh sách cặp (reference, hypothesis).
 
-    Args:
-        references:  Ground-truth strings.
-        hypotheses:  Reconstructed strings.
+    Tham số:
+        references: Chuỗi ground-truth.
+        hypotheses: Chuỗi khôi phục.
 
-    Returns:
-        Mean CER across all pairs.
+    Trả về:
+        CER trung bình trên tất cả cặp.
 
-    Raises:
-        ValueError: If the lists have different lengths.
+    Ngoại lệ:
+        ValueError: Nếu 2 danh sách có độ dài khác nhau.
     """
     if len(references) != len(hypotheses):
         raise ValueError(
@@ -151,14 +140,14 @@ def evaluate(
     references: list[str],
     hypotheses: list[str],
 ) -> dict[str, float]:
-    """Compute all paper metrics in one call.
+    """Tính gộp các thước đo trong bài báo trong một lần gọi.
 
-    Args:
-        references:  Ground-truth message strings.
-        hypotheses:  LLM-reconstructed strings.
+    Tham số:
+        references: Chuỗi tin nhắn ground-truth.
+        hypotheses: Chuỗi tin nhắn khôi phục từ LLM.
 
-    Returns:
-        Dictionary with keys ``"emr"``, ``"avg_cer"``.
+    Trả về:
+        Dict với các khoá ``"emr"``, ``"avg_cer"``.
     """
     return {
         "emr": exact_match_rate(references, hypotheses),
@@ -167,41 +156,35 @@ def evaluate(
 
 
 def initial_cer(raw_text: str, ground_truth: str) -> float:
-    """Compute Initial CER — measure of noise in raw extraction.
-    
-    Compares the full raw extraction against ground truth to assess
-    how much noise/garbage is present before LLM processing.
-    
-    Args:
-        raw_text: Full noisy text from extraction (e.g., all strings).
-        ground_truth: Ground-truth message to compare against.
-    
-    Returns:
-        CER score (can be > 1.0 if raw_text is much longer).
-    """
     if not ground_truth:
         return float("inf")
     if not raw_text:
         return float(len(ground_truth))
-    
-    # Use standard CER but limit hypothesis length to avoid extreme values
-    # (raw extractions can be thousands of times longer than ground truth)
-    limited_raw = raw_text[: max(len(ground_truth) * 10, 1000)]
-    return character_error_rate(ground_truth, limited_raw)
+        
+    ref_len = len(ground_truth)
+    hyp_len = len(raw_text)
+
+    # Nếu chuỗi rác quá lớn (> 500,000 ký tự), dùng phép xấp xỉ toán học 
+    # để tránh bị WSL kill (OOM) do tràn RAM khi chạy mảng Levenshtein
+    if hyp_len > 500_000:
+        return float(hyp_len) / ref_len
+
+    # Tính Levenshtein(gt, raw_text) / len(gt) bình thường cho chuỗi nhỏ
+    return character_error_rate(ground_truth, raw_text)
 
 
 def token_f1(reference: str, hypothesis: str) -> float:
-    """Compute token-level F1 score (whitespace-based tokenization).
-    
-    Useful for evaluating query answers where exact match is too strict
-    but token overlap is meaningful (S3 - Forensic Querying).
-    
-    Args:
-        reference: Ground-truth text.
-        hypothesis: Model-generated text.
-    
-    Returns:
-        F1 score (0.0 to 1.0).
+    """Tính điểm F1 ở mức token (tách token theo khoảng trắng).
+
+    Hữu ích khi đánh giá câu trả lời truy vấn: khớp tuyệt đối quá khắt khe,
+    nhưng mức độ trùng token vẫn có ý nghĩa (S3 – truy vấn điều tra).
+
+    Tham số:
+        reference: Văn bản ground-truth.
+        hypothesis: Văn bản mô hình sinh ra.
+
+    Trả về:
+        Điểm F1 (từ 0.0 đến 1.0).
     """
     from collections import Counter
     

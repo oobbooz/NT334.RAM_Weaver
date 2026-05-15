@@ -1,5 +1,6 @@
-"""Targeted Artifact Filtering – Stage 1b of the RAM-Weaver pipeline.
-Cải tiến: Khử trùng lặp MD5 và Bộ lọc Nhiễu Hệ Thống Chuyên Sâu (Smart Blacklist).
+"""Lọc artifact theo mục tiêu – Bước 1b của quy trình RAM-Weaver.
+
+Cải tiến: Khử trùng lặp theo MD5 và bộ lọc nhiễu hệ thống (smart blacklist).
 """
 
 from __future__ import annotations

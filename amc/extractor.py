@@ -1,20 +1,19 @@
-"""Adaptive Memory Extraction (AME) – Stage 1a of the RAM-Weaver pipeline.
+"""Trích xuất bộ nhớ thích nghi (AME) – Giai đoạn 1a của quy trình RAM-Weaver.
 
-Implements two extraction modes described in the paper (Section 2.1):
+Hiện thực 2 chế độ trích xuất được mô tả trong bài báo (Mục 2.1):
 
-* **Heap Mode** – parses the Process Environment Block (PEB) to identify
-  VAD regions that back heap allocations.  Uses ``windows.vadinfo.VadInfo``
-  and filters for ``VadS`` + ``READWRITE`` entries.
+* **Chế độ heap** – phân tích Process Environment Block (PEB) để xác định
+    các vùng VAD cấp phát heap. Dùng ``windows.vadinfo.VadInfo`` và lọc các
+    mục ``VadS`` + ``READWRITE``.
 
-* **PrivateMemory Mode** (default for LINE Messenger) – traverses the full
-  VAD tree and dumps every region marked as PrivateMemory, intelligently
-  skipping mapped executable files (``VadImageMap``) and device-backed
-  regions.
+* **Chế độ PrivateMemory** (mặc định cho LINE Messenger) – duyệt toàn bộ cây
+    VAD và dump mọi vùng được đánh dấu PrivateMemory, đồng thời bỏ qua thông minh
+    các file thực thi ánh xạ (``VadImageMap``) và vùng device-backed.
 
-Volatility 3 is used for all VAD operations.  The class tries multiple
-entrypoints (``vol.py``, the ``vol`` console script, etc.) and falls back
-gracefully, including a direct-file fallback for ``.dmp`` process dumps that
-lack full kernel metadata.
+Volatility 3 được dùng cho mọi thao tác VAD. Lớp này thử nhiều điểm vào
+(``vol.py``, console script ``vol``, ...) và có cơ chế fallback an toàn,
+bao gồm fallback đọc trực tiếp file ``.dmp`` (dump process) trong trường hợp
+thiếu metadata nhân hệ điều hành.
 """
 
 from __future__ import annotations
@@ -31,19 +30,19 @@ from config import AMCConfig
 
 log = logging.getLogger("ram_weaver.amc.extractor")
 
-# Regex to parse VAD dump filenames produced by Volatility 3.
-# Example: pid.123.vad.0x00400000-0x004fffff.dmp
+# Biểu thức chính quy để parse tên file VAD dump do Volatility 3 tạo.
+# Ví dụ: pid.123.vad.0x00400000-0x004fffff.dmp
 _VAD_FNAME_RE = re.compile(
     r"vad\.(?:0x)?([0-9a-fA-F]+)-(?:0x)?([0-9a-fA-F]+)\.dmp",
     re.IGNORECASE,
 )
 
-# Maximum address offset (in bytes) for matching a VAD dump file to a region.
+# Sai số offset địa chỉ tối đa (byte) khi ghép file VAD dump với vùng nhớ.
 _REGION_MATCH_TOLERANCE = 0x1000
 
 
 class AdaptiveMemoryExtractor:
-    """Extracts relevant VAD regions from a memory dump using Volatility 3."""
+    """Trích xuất các vùng VAD liên quan từ dump bộ nhớ bằng Volatility 3."""
 
     def __init__(self, config: AMCConfig) -> None:
         self.cfg = config
@@ -54,15 +53,15 @@ class AdaptiveMemoryExtractor:
     # ------------------------------------------------------------------ #
 
     def extract(self, dump_path: str, pid: int) -> list[str]:
-        """Extract process memory regions and return a list of binary file paths.
+        """Trích xuất các vùng nhớ của process và trả về danh sách file nhị phân.
 
-        Args:
-            dump_path: Path to the full-system memory image (e.g., ``.vmem``).
-            pid:       Target process PID.
+        Tham số:
+            dump_path: Đường dẫn tới ảnh dump bộ nhớ (ví dụ ``.vmem``).
+            pid: PID của process mục tiêu.
 
-        Returns:
-            List of absolute paths to extracted VAD ``.dmp`` files, or an
-            empty list on failure.
+        Trả về:
+            Danh sách đường dẫn tuyệt đối tới các file VAD ``.dmp`` đã trích xuất,
+            hoặc danh sách rỗng nếu thất bại.
         """
         if not Path(dump_path).is_file():
             log.error("Memory dump not found: %s", dump_path)
@@ -79,8 +78,8 @@ class AdaptiveMemoryExtractor:
         if files:
             return files
 
-        # Graceful fallback: process dumps (.dmp) lack full kernel metadata
-        # required by VadInfo.  Feed the dump directly to the filtering stage.
+        # Fallback an toàn: dump process (.dmp) có thể thiếu metadata nhân HĐH
+        # mà VadInfo yêu cầu. Khi đó đưa thẳng file dump vào bước lọc/trích xuất.
         if dump_path.lower().endswith(".dmp"):
             log.warning(
                 "Volatility could not extract VAD regions from process dump. "
@@ -97,11 +96,11 @@ class AdaptiveMemoryExtractor:
     # ------------------------------------------------------------------ #
 
     def _detect_mode(self, dump_path: str, pid: int) -> str:  # noqa: ARG002
-        """Select the extraction mode.
+        """Chọn chế độ trích xuất.
 
-        If ``extraction_mode`` is set to something other than ``"auto"`` the
-        value is returned as-is.  Otherwise the heuristic defaults to
-        ``private_memory`` which the paper shows works best for LINE Messenger.
+        Nếu ``extraction_mode`` khác ``"auto"`` thì trả về đúng giá trị đó.
+        Nếu để ``auto`` thì heuristic mặc định chọn ``private_memory`` (theo
+        bài báo: phù hợp nhất cho LINE Messenger).
         """
         if self.cfg.extraction_mode != "auto":
             return self.cfg.extraction_mode
@@ -116,7 +115,7 @@ class AdaptiveMemoryExtractor:
     # ------------------------------------------------------------------ #
 
     def _heap_mode(self, dump_path: str, pid: int) -> list[str]:
-        """Dump only VAD regions that back process heaps (VadS + READWRITE)."""
+        """Chỉ dump các vùng VAD thuộc heap của process (VadS + READWRITE)."""
         log.info("Heap Mode: fetching VAD region list …")
         vad_info = self._run_volatility(
             dump_path, ["windows.vadinfo.VadInfo", "--pid", str(pid)]
@@ -240,12 +239,18 @@ class AdaptiveMemoryExtractor:
         regions: list[tuple[int, int]],
         prefix: str,
     ) -> list[str]:
-        """Ask Volatility to dump the given VAD regions and filter the results.
+        """Yêu cầu Volatility dump các vùng VAD đã cho và lọc lại kết quả.
 
-        Returns the subset of dumped files whose start address matches one of
-        the requested ``regions``.
+        Trả về tập con các file dump mà địa chỉ bắt đầu khớp với một trong các
+        ``regions`` yêu cầu.
         """
         dump_subdir = os.path.join(self.cfg.vad_dump_dir, f"pid_{pid}")
+        if os.path.isdir(dump_subdir):
+            try:
+                for old_dump in Path(dump_subdir).glob("*.dmp"):
+                    old_dump.unlink(missing_ok=True)
+            except Exception as exc:
+                log.warning("Failed to clean old VAD dumps in %s: %s", dump_subdir, exc)
         os.makedirs(dump_subdir, exist_ok=True)
         log.info("Dumping VAD regions to: %s", dump_subdir)
 
@@ -288,14 +293,14 @@ class AdaptiveMemoryExtractor:
     # ------------------------------------------------------------------ #
 
     def _run_volatility(self, dump_path: str, args: list[str]) -> str:
-        """Run Volatility 3 with the given arguments and return stdout.
+        """Chạy Volatility 3 với tham số chỉ định và trả về stdout.
 
-        Tries multiple entrypoints in order:
-        1. ``python vol.py``  (if ``RAM_WEAVER_VOL_PATH`` points to vol.py)
-        2. ``vol.exe`` / ``vol``  (pip-installed console script)
-        3. ``vol``  from PATH
+        Thử nhiều entrypoint theo thứ tự:
+        1. ``python vol.py`` (nếu ``RAM_WEAVER_VOL_PATH`` trỏ tới vol.py)
+        2. ``vol`` (console script được cài qua pip trong venv)
+        3. ``vol`` (từ PATH)
 
-        Returns empty string if all attempts fail.
+        Trả về chuỗi rỗng nếu mọi cách đều thất bại.
         """
         python_exe = self.cfg.python_executable or sys.executable
         commands: list[list[str]] = []
@@ -313,10 +318,9 @@ class AdaptiveMemoryExtractor:
                     vol_script,
                 )
 
-        # Probe for pip-installed console script alongside the Python binary
+        # Tìm console script `vol` trong cùng thư mục với Python (thường là venv)
         scripts_dir = Path(python_exe).parent
         for candidate in (
-            scripts_dir / "vol.exe",
             scripts_dir / "vol",
             Path("vol"),   # relies on PATH
         ):
@@ -325,8 +329,8 @@ class AdaptiveMemoryExtractor:
 
         if not commands:
             log.error(
-                "No Volatility entrypoint found. "
-                "Set RAM_WEAVER_VOL_PATH or install volatility3 via pip."
+                "Không tìm thấy entrypoint của Volatility. "
+                "Hãy set RAM_WEAVER_VOL_PATH hoặc cài volatility3 qua pip."
             )
             return ""
 
@@ -343,7 +347,7 @@ class AdaptiveMemoryExtractor:
                 log.error("Volatility timed out after %ds.", self.cfg.volatility_timeout)
                 continue
             except FileNotFoundError:
-                continue  # entrypoint not available, try next
+                continue  # không có entrypoint này, thử cái tiếp theo
 
             if result.returncode == 0:
                 return result.stdout

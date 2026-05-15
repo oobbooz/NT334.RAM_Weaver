@@ -1,14 +1,14 @@
 #!/usr/bin/env python
-"""diagnose.py – So sánh raw dump và AMC chunk output để xác định mất dữ liệu ở bước nào.
+"""diagnose.py – So sánh dump thô và output chunk của AMC để xác định mất dữ liệu ở bước nào.
 
-Usage:
+Cách dùng:
     python diagnose.py <dump_file_or_dmp_dir> <chunks_file>
 
 Ví dụ:
     python diagnose.py source/mem_capture.raw output/amc_output.txt
     python diagnose.py vad_dumps/pid_8616/    output/amc_output.txt
 
-Output:
+Kết quả:
     - diagnose_report.txt  : báo cáo đầy đủ
     - missing_strings.txt  : các string có trong raw nhưng KHÔNG có trong chunks
 """
@@ -127,8 +127,8 @@ def search_in_raw(needle: str, raw_strings: set[str]) -> list[str]:
 
 def main() -> None:
     if len(sys.argv) < 3:
-        print("Usage: python diagnose.py <raw_dump_or_vad_dir> <chunks_file>")
-        print("Example: python diagnose.py source/mem_capture.raw output/amc_output.txt")
+        print("Cách dùng: python diagnose.py <raw_dump_or_vad_dir> <chunks_file>")
+        print("Ví dụ: python diagnose.py source/mem_capture.raw output/amc_output.txt")
         sys.exit(1)
 
     raw_source = sys.argv[1]

@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-"""experiment_s3.py — Tái hiện S3: Contextual Forensic Querying (Figure 2 trong paper).
+"""experiment_s3.py — Tái hiện S3: Truy vấn điều tra theo ngữ cảnh (Hình 2 trong bài báo).
 
 Mục đích:
     Đánh giá khả năng phân tích ngữ cảnh của hệ thống trên cuộc trò chuyện
     gồm nhiều lượt trao đổi qua LINE Messenger.
 
-Pipeline:
-    Stage 1  – AMC (Adaptive Memory Carver):
+Quy trình:
+    Giai đoạn 1  – AMC (Adaptive Memory Carver):
                 Đọc file dump → trích strings → lọc regex + JSON-key filter
                 → output: các chunk JSON có liên quan đến tin nhắn.
-    Stage 2  – Forensic Querying qua LLM:
+    Giai đoạn 2  – Truy vấn điều tra qua LLM:
                 Nạp chunks vào ForensicQueryEngine → gửi từng câu hỏi →
                 LLM phân tích ngữ cảnh, chuyển đổi timestamp, xác định
                 người gửi, tổng hợp bản ghi dễ đọc.
@@ -20,17 +20,17 @@ Thiết lập (paper S3):
     - Đánh giá định tính: Correctness (tính chính xác) & Completeness (tính đầy đủ).
 
 Sử dụng:
-    # Chạy đầy đủ (Stage 1 + Stage 2 interactive):
-    python experiment_s3.py D:\\nt334\\line_s3.dmp --pid <PID>
+    # Chạy đầy đủ (Giai đoạn 1 + Giai đoạn 2 tương tác):
+    python experiment_s3.py /path/to/line_s3.dmp --pid <PID>
 
-    # Nếu đã có AMC output file (bỏ qua Stage 1):
-    python experiment_s3.py D:\\nt334\\line_s3.dmp --amc-file output/amc/s3_amc_output.txt
+    # Nếu đã có file output AMC (bỏ qua Giai đoạn 1):
+    python experiment_s3.py /path/to/line_s3.dmp --amc-file output/amc/s3_amc_output.txt
 
-    # Dùng danh sách câu hỏi từ JSON thay vì interactive:
-    python experiment_s3.py D:\\nt334\\line_s3.dmp --pid <PID> --queries s3_queries.json
+    # Dùng danh sách câu hỏi từ JSON thay vì tương tác:
+    python experiment_s3.py /path/to/line_s3.dmp --pid <PID> --queries s3_queries.json
 
-    # Chạy với câu hỏi từ paper (Figure 2) mà không cần PID Volatility:
-    python experiment_s3.py D:\\nt334\\line_s3.dmp --no-volatility --queries s3_queries.json
+    # Chạy với câu hỏi từ bài báo (Hình 2) mà không cần PID Volatility:
+    python experiment_s3.py /path/to/line_s3.dmp --no-volatility --queries s3_queries.json
 """
 
 from __future__ import annotations
@@ -51,14 +51,8 @@ for p in [str(ROOT), str(ROOT / "llm"), str(ROOT / "amc")]:
         sys.path.insert(0, p)
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
-_env = ROOT / ".env"
-if _env.is_file():
-    for _line in _env.read_text(encoding="utf-8", errors="ignore").splitlines():
-        _line = _line.strip()
-        if not _line or _line.startswith("#") or "=" not in _line:
-            continue
-        _k, _, _v = _line.partition("=")
-        os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+from config import load_env
+load_env(ROOT / ".env")
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -77,7 +71,7 @@ def _banner(title: str) -> None:
 
 
 # =============================================================================
-# Stage 1 – AMC: trích xuất chunk từ dump
+# Giai đoạn 1 – AMC: trích xuất chunk từ dump
 # =============================================================================
 
 def _extract_strings_raw(data: bytes, min_len: int = 8) -> list[str]:
@@ -101,23 +95,23 @@ def _extract_strings_raw(data: bytes, min_len: int = 8) -> list[str]:
 
 
 def run_amc_stage(dump_path: str, pid: int | None, no_volatility: bool = False) -> str:
-    """Chạy Stage 1 AMC và trả về text output (string).
+    """Chạy Giai đoạn 1 (AMC) và trả về text output (string).
 
     Ưu tiên:
     1. Nếu có Volatility + PID → dùng AdaptiveMemoryCarver đầy đủ.
     2. Nếu --no-volatility hoặc không có PID → dùng direct raw strings +
        JSON-key filter (fallback không cần Volatility).
 
-    Returns:
+    Trả về:
         AMC output text (các chunks ghép bằng \\n---CHUNK---\\n).
     """
-    _banner("STAGE 1 — Adaptive Memory Carver (AMC)")
+    _banner("GIAI ĐOẠN 1 — Adaptive Memory Carver (AMC)")
     print(f"  Dump : {dump_path}", flush=True)
     dump_size_mb = os.path.getsize(dump_path) / 1024 / 1024
     print(f"  Size : {dump_size_mb:.2f} MB", flush=True)
 
     if not no_volatility and pid is not None:
-        print(f"  PID  : {pid}  →  Chạy full AMC pipeline (Volatility)...", flush=True)
+        print(f"  PID  : {pid}  →  Chạy đầy đủ quy trình AMC (Volatility)...", flush=True)
         try:
             from config import AMCConfig
             from amc.pipeline import AdaptiveMemoryCarver
@@ -216,7 +210,7 @@ def run_amc_stage(dump_path: str, pid: int | None, no_volatility: bool = False) 
 
 
 # =============================================================================
-# Stage 2 – Forensic Querying qua LLM
+# Giai đoạn 2 – Truy vấn điều tra qua LLM
 # =============================================================================
 
 def _init_llm_engine(memory_text: str):
@@ -246,13 +240,13 @@ def _run_predefined_queries(
 
     Đánh giá định tính (S3): Correctness + Completeness.
 
-    Args:
-        engine:  ForensicQueryEngine đã nạp memory data.
+    Tham số:
+        engine: ForensicQueryEngine đã nạp memory data.
         queries: Danh sách dict {"id", "query", "ground_truth" (tùy chọn)}.
-        throttle: Delay giữa các API call (giây).
+        throttle: Thời gian nghỉ giữa các lần gọi API (giây).
 
-    Returns:
-        Danh sách kết quả với "id", "query", "answer", "ground_truth".
+    Trả về:
+        Danh sách kết quả gồm "id", "query", "answer", "ground_truth".
     """
     results: list[dict] = []
     total = len(queries)
@@ -367,30 +361,27 @@ def _save_s3_results(results: list[dict], amc_size_kb: float) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="S3: Contextual Forensic Querying – mô phỏng paper Figure 2",
+                description="S3: Truy vấn điều tra theo ngữ cảnh – mô phỏng Hình 2 trong bài báo",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ví dụ:
-  # Đầy đủ (Stage 1 Volatility + Stage 2 interactive):
-  python experiment_s3.py D:\\nt334\\line_s3.dmp --pid 4832
+    # Đầy đủ (Giai đoạn 1: Volatility + Giai đoạn 2: tương tác):
+    python experiment_s3.py /path/to/line_s3.dmp --pid 4832
 
   # Bỏ qua Volatility, dùng raw dump trực tiếp:
-  python experiment_s3.py D:\\nt334\\line_s3.dmp --no-volatility
+    python experiment_s3.py /path/to/line_s3.dmp --no-volatility
 
   # Dùng AMC output đã có sẵn:
-  python experiment_s3.py D:\\nt334\\line_s3.dmp --amc-file output/amc/s3_amc_output.txt
+    python experiment_s3.py /path/to/line_s3.dmp --amc-file output/amc/s3_amc_output.txt
 
-  # Chạy câu hỏi từ JSON (không interactive):
-  python experiment_s3.py D:\\nt334\\line_s3.dmp --no-volatility --queries s3_queries.json
-
-  # Thêm câu hỏi từ paper Figure 2:
-  python experiment_s3.py D:\\nt334\\line_s3.dmp --no-volatility --paper-demo
+    # Chạy câu hỏi từ JSON (không tương tác):
+    python experiment_s3.py /path/to/line_s3.dmp --no-volatility --queries s3_queries.json
         """
     )
 
     parser.add_argument(
         "dump_path",
-        help='Đường dẫn file memory dump (.dmp/.raw/.vmem), ví dụ: D:\\nt334\\line_s3.dmp',
+        help='Đường dẫn file memory dump (.dmp/.raw/.vmem), ví dụ: /path/to/line_s3.dmp',
     )
     parser.add_argument(
         "--pid", type=int, default=None,
@@ -402,7 +393,7 @@ Ví dụ:
     )
     parser.add_argument(
         "--amc-file", default=None,
-        help="Dùng file AMC output đã có sẵn (bỏ qua Stage 1 hoàn toàn)",
+        help="Dùng file AMC output đã có sẵn (bỏ qua Giai đoạn 1 hoàn toàn)",
     )
     parser.add_argument(
         "--queries", default=None,
@@ -424,11 +415,11 @@ Ví dụ:
         print(f"[ERROR] Không tìm thấy dump file: {args.dump_path}", flush=True)
         sys.exit(1)
 
-    _banner("RAM-Weaver — S3: Contextual Forensic Querying")
+    _banner("RAM-Weaver — S3: Truy vấn điều tra theo ngữ cảnh")
     print(f"  Dump : {args.dump_path}", flush=True)
     print(f"  Paper: Figure 2 – LLM-driven Forensic Querying", flush=True)
 
-    # ── Stage 1 – AMC ─────────────────────────────────────────────────────────
+    # ── Giai đoạn 1 – AMC ─────────────────────────────────────────────────────
     if args.amc_file:
         # Dùng file đã có
         amc_path = args.amc_file
@@ -437,7 +428,7 @@ Ví dụ:
             sys.exit(1)
         memory_text = Path(amc_path).read_text(encoding="utf-8")
         amc_size_kb = len(memory_text) / 1024
-        _banner("STAGE 1 — AMC (skipped, dùng file có sẵn)")
+        _banner("GIAI ĐOẠN 1 — AMC (bỏ qua, dùng file có sẵn)")
         print(f"  File : {amc_path}", flush=True)
         print(f"  Size : {amc_size_kb:.2f} KB  |  "
               f"{memory_text.count('---CHUNK---') + 1} chunks", flush=True)
@@ -453,8 +444,8 @@ Ví dụ:
         print("[ERROR] AMC output rỗng. Kiểm tra dump file hoặc thay đổi --pid.", flush=True)
         sys.exit(1)
 
-    # ── Stage 2 – LLM Engine ─────────────────────────────────────────────────
-    _banner("STAGE 2 — LLM Forensic Query Engine")
+    # ── Giai đoạn 2 – Bộ máy LLM ─────────────────────────────────────────────
+    _banner("GIAI ĐOẠN 2 — Bộ máy truy vấn điều tra bằng LLM")
     try:
         engine, cfg = _init_llm_engine(memory_text)
     except Exception as exc:
@@ -482,7 +473,7 @@ Ví dụ:
     # ── Chạy predefined queries ───────────────────────────────────────────────
     results: list[dict] = []
     if queries:
-        _banner("CHẠY PREDEFINED QUERIES")
+        _banner("CHẠY CÂU HỎI ĐÃ ĐỊNH NGHĨA")
         results = _run_predefined_queries(engine, queries, throttle=args.throttle)
         _print_s3_summary(results, amc_size_kb)
         _save_s3_results(results, amc_size_kb)
@@ -490,7 +481,7 @@ Ví dụ:
     # ── Interactive session ───────────────────────────────────────────────────
     if args.interactive or not queries:
         # Nếu không có queries file thì mặc định vào interactive
-        _banner("INTERACTIVE FORENSIC QUERY SESSION")
+        _banner("PHIÊN TRUY VẤN ĐIỀU TRA TƯƠNG TÁC")
         print(
             "  💡 Gõ câu hỏi bằng tiếng Anh hoặc tiếng Việt.\n"
             "  💡 Lệnh: exit | quit | history | save\n"

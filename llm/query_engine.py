@@ -1,4 +1,4 @@
-"""Contextual Forensic Querying – Stage 2, Task B (flat layout).
+"""Truy vấn điều tra theo ngữ cảnh – Giai đoạn 2, Nhiệm vụ B (flat layout).
 
 Phân tích memory data từ LINE Messenger và trả lời câu hỏi điều tra
 bằng ngôn ngữ tự nhiên thông qua LLM.
@@ -23,7 +23,7 @@ log = logging.getLogger("ram_weaver.llm.query_engine")
 _HISTORY_OUTPUT_PATH = "./output_s3/query_history.json"
 
 # ---------------------------------------------------------------------------
-# Timestamp helpers
+# Tiện ích timestamp
 # ---------------------------------------------------------------------------
 
 _VN_UTC_OFFSET = 7 * 3600  # UTC+7
@@ -82,7 +82,7 @@ def _inject_vn_timestamps(memory_data: str) -> str:
 def _prefilter_chunks(memory_data: str, query: str) -> tuple[str, str]:
     """Lọc chunk theo điều kiện thời gian rút ra từ query.
 
-    Returns:
+    Trả về:
         (filtered_data, note)
     """
     after_m = _TIME_AFTER_RE.search(query)
@@ -161,7 +161,7 @@ class ForensicQueryEngine:
         self._memory_data: str = ""
 
     # ------------------------------------------------------------------ #
-    # Data loading                                                         #
+    # Nạp dữ liệu                                                          #
     # ------------------------------------------------------------------ #
 
     def load_memory_file(self, chunks_file: str) -> None:
@@ -173,24 +173,24 @@ class ForensicQueryEngine:
         )
 
     def load_memory_string(self, memory_data: str) -> None:
-        """Load AMC output trực tiếp từ string."""
+        """Nạp output AMC trực tiếp từ chuỗi."""
         self._memory_data = memory_data
         log.info("Loaded %d chars of memory data.", len(memory_data))
 
     # ------------------------------------------------------------------ #
-    # Query                                                                #
+    # Truy vấn                                                             #
     # ------------------------------------------------------------------ #
 
     def query(self, investigator_query: str) -> str:
         """Gửi câu hỏi điều tra và trả về kết quả phân tích từ LLM.
 
-        Pipeline:
+        Quy trình:
           1. Pre-filter chunks theo điều kiện thời gian (nếu có) → giảm input size
           2. Inject _vnTime đã convert sẵn vào mỗi createdTime → LLM không tự tính
           3. Truncate nếu vẫn vượt max_input_chars
           4. Gửi LLM
 
-        Raises:
+        Ngoại lệ:
             RuntimeError: Nếu chưa load memory data.
         """
         if not self._memory_data:
@@ -221,7 +221,7 @@ class ForensicQueryEngine:
         return result.strip()
 
     # ------------------------------------------------------------------ #
-    # Interactive session                                                  #
+    # Phiên tương tác                                                      #
     # ------------------------------------------------------------------ #
 
     def interactive_session(self) -> None:

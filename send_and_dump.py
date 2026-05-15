@@ -8,7 +8,7 @@ Cách chạy (từ VS Code terminal hoặc bất kỳ terminal nào):
     python send_and_dump.py --calibrate
 
     # Bước 2: Chạy thật
-    python send_and_dump.py --input messages.txt --limit 10 --input-x 760 --input-y 950
+    python send_and_dump.py --input ground_truth.txt --limit 10 --input-x 682 --input-y 568
 """
 
 from __future__ import annotations
@@ -43,14 +43,13 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DUMP_DIR = Path("./dumps")
-GT_FILE  = Path("./ground_truth.txt")
 LOG_FILE = Path("./send_dump_log.txt")
 
 WAIT_AFTER_SEND   = 3.0   # chờ sau khi gửi message (giây)
 WAIT_BETWEEN_MSG  = 2.0   # delay giữa các message
 WAIT_AFTER_FOCUS  = 0.5   # chờ sau khi focus cửa sổ
 
-PROCDUMP_PATH = "procdump.exe"
+PROCDUMP_PATH = r".\procdump.exe"
 WINPMEM_PATH  = r".\winpmem64.exe"
 
 # ── Tìm và focus cửa sổ LINE ──────────────────────────────────────────────────
@@ -152,12 +151,22 @@ def find_line_pid() -> int:
 
 
 def dump_process_procdump(pid: int, output_path: str) -> bool:
+    import os
+    
+    if os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+            
     cmd = [PROCDUMP_PATH, "-ma", str(pid), output_path]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        print(f"    [WARN] procdump lỗi: {result.stderr[:200]}")
-        return False
-    return True
+    result = subprocess.run(cmd, timeout=60)
+    
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 10 * 1024 * 1024:
+        return True
+        
+    print(f"    [WARN] procdump báo lỗi: {result.returncode}. Không tìm thấy file dump hợp lệ.")
+    return False
 
 
 def dump_full_ram_winpmem(output_path: str) -> bool:
@@ -227,7 +236,7 @@ def main() -> None:
     )
     parser.add_argument("--input",      help="File messages (.txt hoặc .csv)")
     parser.add_argument("--limit",      type=int, help="Giới hạn số message")
-    parser.add_argument("--dumper",     default="procdump",
+    parser.add_argument("--dumper",     default="winpmem",
                         choices=["procdump", "winpmem"])
     parser.add_argument("--start-from", type=int, default=1,
                         help="Bắt đầu từ message thứ N (resume support)")
@@ -317,9 +326,9 @@ def main() -> None:
         # Gửi message
         try:
             send_message_to_line(msg, input_x, input_y, hwnd)
-            print(f"  ✓ Đã gửi")
+            print(f" Đã gửi")
         except Exception as e:
-            print(f"  ✗ Lỗi khi gửi: {e}")
+            print(f"  Lỗi khi gửi: {e}")
             log_entries.append(f"[{idx_str}] SEND_ERROR: {e}")
             continue
 
@@ -332,29 +341,27 @@ def main() -> None:
             else:
                 dump_ok = dump_full_ram_winpmem(dump_path)
         except Exception as e:
-            print(f"  ✗ Lỗi dump: {e}")
+            print(f"  Lỗi dump: {e}")
             log_entries.append(f"[{idx_str}] DUMP_ERROR: {e}")
 
         if dump_ok:
             size_mb = os.path.getsize(dump_path) / 1024 / 1024
-            print(f"  ✓ Dump xong ({size_mb:.1f} MB)")
+            print(f" Dump xong ({size_mb:.1f} MB)")
             gt_lines.append(msg)
             log_entries.append(f"[{idx_str}] OK dump={dump_name} size={size_mb:.1f}MB")
             success_count += 1
         else:
-            print(f"  ✗ Dump thất bại")
+            print(f" Dump thất bại")
             log_entries.append(f"[{idx_str}] DUMP_FAILED msg={msg[:50]}")
 
         if i < start_idx + total:
             time.sleep(WAIT_BETWEEN_MSG)
 
     # ── Lưu kết quả ──────────────────────────────────────────────────────────
-    GT_FILE.write_text("\n".join(gt_lines), encoding="utf-8")
     LOG_FILE.write_text("\n".join(log_entries), encoding="utf-8")
 
     print(f"\n{'='*50}")
     print(f"Kết quả   : {success_count}/{total} message dump thành công")
-    print(f"Ground truth → {GT_FILE}")
     print(f"Log          → {LOG_FILE}")
     print(f"{'='*50}")
 

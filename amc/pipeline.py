@@ -1,10 +1,10 @@
-"""Stage 1 top-level pipeline: Adaptive Memory Carver (AMC).
+"""Quy trình giai đoạn 1: Adaptive Memory Carver (AMC).
 
-Orchestrates the two AMC sub-stages:
-    1. Adaptive Memory Extraction (AME) via :class:`AdaptiveMemoryExtractor`.
-    2. Targeted Artifact Filtering via :class:`ArtifactFilter`.
+Điều phối 2 bước con của AMC:
+    1) Trích xuất bộ nhớ thích nghi (AME) qua :class:`AdaptiveMemoryExtractor`.
+    2) Lọc nhiễu theo mục tiêu qua :class:`ArtifactFilter`.
 
-Usage::
+Cách dùng::
 
     from ram_weaver.amc import AMCConfig, AdaptiveMemoryCarver
 
@@ -26,11 +26,10 @@ log = logging.getLogger("ram_weaver.amc.pipeline")
 
 
 class AdaptiveMemoryCarver:
-    """End-to-end Stage 1 orchestrator.
+    """Bộ điều phối end-to-end cho giai đoạn 1.
 
-    Args:
-        config: AMC configuration object.  Defaults to ``AMCConfig()`` which
-                reads settings from environment variables.
+    Tham số:
+        config: Cấu hình AMC. Mặc định là ``AMCConfig()`` (đọc từ biến môi trường).
     """
 
     def __init__(self, config: Optional[AMCConfig] = None) -> None:
@@ -44,15 +43,15 @@ class AdaptiveMemoryCarver:
         pid: int,
         output_name: str = "amc_output.txt",
     ) -> str:
-        """Execute the full AMC pipeline.
+        """Chạy toàn bộ pipeline AMC.
 
-        Args:
-            dump_path:   Path to the system memory image.
-            pid:         Target process PID.
-            output_name: Filename for the filtered chunk output.
+        Tham số:
+            dump_path: Đường dẫn tới file dump bộ nhớ.
+            pid: PID của process mục tiêu.
+            output_name: Tên file output chứa các chunk sau khi lọc.
 
-        Returns:
-            Absolute path to the chunk file, or empty string on failure.
+        Trả về:
+            Đường dẫn tuyệt đối tới file chunk, hoặc chuỗi rỗng nếu thất bại.
         """
         log.info("=" * 60)
         log.info("RAM-Weaver Stage 1 – AMC Pipeline started")
@@ -60,7 +59,7 @@ class AdaptiveMemoryCarver:
         log.info("  PID  : %d", pid)
         log.info("=" * 60)
 
-        # Stage 1a – Adaptive Memory Extraction
+        # Bước 1a – Trích xuất vùng nhớ (AME)
         binary_files = self.extractor.extract(dump_path, pid)
         if not binary_files:
             log.error("No memory regions extracted. Aborting.")
@@ -68,7 +67,7 @@ class AdaptiveMemoryCarver:
 
         log.info("Extracted %d binary region file(s).", len(binary_files))
 
-        # Stage 1b – Targeted Artifact Filtering
+        # Bước 1b – Lọc artifact theo mục tiêu
         chunks = self.artifact_filter.filter(binary_files)
         if not chunks:
             log.warning("No chunks survived filtering.")
