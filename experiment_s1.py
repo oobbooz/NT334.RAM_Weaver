@@ -162,6 +162,17 @@ def ramweaver_full_amc(dump_path: str, pid: int) -> tuple[str, str]:
     print(f"    Chunks: {output_text.count('---CHUNK---') + 1}")
     return pre_filter_text, output_text
 
+def parse_single_msg_output(llm_output: str) -> str:
+    """Lấy phần message_text từ output format [HH:MM:SS] / sender: / text"""
+    lines = llm_output.strip().splitlines()
+    # Bỏ dòng timestamp [HH:MM:SS] và dòng sender_id:
+    for i, line in enumerate(lines):
+        if re.match(r"^\[?\d{2}:\d{2}:\d{2}\]?$", line.strip()):
+            continue
+        if re.match(r"^.+:$", line.strip()):
+            # Dòng tiếp theo trở đi là message text
+            return "\n".join(lines[i+1:]).strip()
+    return llm_output.strip()  # fallback nếu không match format
 
 # ── LLM restore (chỉ gọi khi feasible) ───────────────────────────────────────
 
@@ -169,7 +180,7 @@ def llm_restore(text: str, ground_truth: str) -> tuple[str, float]:
     try:
         from config import LLMConfig
         from llm.client import create_client
-        from llm.prompts import RESTORE_SYSTEM_PROMPT, RESTORE_BATCH_USER_TEMPLATE
+        from llm.prompts import RESTORE_SYSTEM_PROMPT, RESTORE_BATCH_USER_TEMPLATE, RESTORE_S2_SINGLE_MSG_PROMPT
     except ImportError as e:
         print(f"    Không import được LLM modules: {e}")
         return "", float("inf")
@@ -181,7 +192,8 @@ def llm_restore(text: str, ground_truth: str) -> tuple[str, float]:
     print(f"    Gọi LLM ({cfg.provider}/{cfg.model})...")
     t0 = time.time()
     try:
-        result = llm.generate(RESTORE_SYSTEM_PROMPT, user_msg).strip()
+        raw = llm.generate(RESTORE_S2_SINGLE_MSG_PROMPT, user_msg).strip()
+        result = parse_single_msg_output(raw)
         elapsed = time.time() - t0
         final_cer_val = cer(ground_truth, result)
         print(f"    LLM done ({elapsed:.1f}s), Final CER={final_cer_val:.4f}")

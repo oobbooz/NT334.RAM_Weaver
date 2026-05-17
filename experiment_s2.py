@@ -329,7 +329,7 @@ def run_experiment(
             out_path = os.path.join(restore_dir, f"{label}.txt")
             with open(out_path, "w", encoding="utf-8") as fh:
                 fh.write(f"=== Restored Block {i} ===\n")
-                fh.write(hyp_raw.strip())
+                fh.write(hyp)  # ← Lưu message text đã extract (cleaned)
                 fh.write("\n")
         except Exception as exc:
             print(f"✗  LỖI: {exc}")
@@ -345,7 +345,7 @@ def run_experiment(
             out_path = os.path.join(restore_dir, f"{label}.txt")
             with open(out_path, "w", encoding="utf-8") as fh:
                 fh.write(f"=== Restored Block {i} ===\n")
-                fh.write("\n")
+                fh.write("[ERROR] Không lấy được kết quả\n")
 
     return results
 
