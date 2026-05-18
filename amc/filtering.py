@@ -38,6 +38,24 @@ _SYSTEM_NOISE_TOKENS = [
     "wrtcomposition"
 ]
 
+# Regex phát hiện thông tin nhạy cảm
+_EMAIL_RE = re.compile(
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+)
+
+_PHONE_RE = re.compile(
+    r"(?<!\d)(?:\+84|84|0)(?:[\s.-]?\d){8,10}(?!\d)"
+)
+
+_CCCD_RE = re.compile(
+    r"(?<!\d)\d{12}(?!\d)"
+)
+
+_CCCD_CONTEXT_RE = re.compile(
+    r"cccd|căn cước|can cuoc|cmnd|chứng minh|chung minh|id card",
+    re.IGNORECASE,
+)
+
 
 class ArtifactFilter:
     def __init__(self, config: AMCConfig) -> None:
@@ -46,12 +64,33 @@ class ArtifactFilter:
         self._keys_regex: re.Pattern[str] = re.compile(
             "|".join(re.escape(f'"{k}"') for k in config.json_keys_of_interest)
         )
+
+        # Side-output cho dữ liệu nhạy cảm, không đổi interface chính của pipeline
+        self.sensitive_records: list[dict] = []
+        self.sensitive_entities: dict[str, dict] = {}
+        self._sensitive_value_to_label: dict[str, str] = {}
+        self._sensitive_counters: dict[str, int] = {
+            "EMAIL": 0,
+            "PHONE": 0,
+            "CCCD": 0,
+        }
+
         os.makedirs(config.output_dir, exist_ok=True)
 
     def filter(self, binary_files: Sequence[str]) -> list[str]:
         all_chunks: list[str] = []
         total_raw_bytes = 0
         total_clean_bytes = 0
+
+        # Reset kết quả sensitive mỗi lần chạy filter
+        self.sensitive_records = []
+        self.sensitive_entities = {}
+        self._sensitive_value_to_label = {}
+        self._sensitive_counters = {
+            "EMAIL": 0,
+            "PHONE": 0,
+            "CCCD": 0,
+        }
 
         valid_files = [f for f in binary_files if os.path.isfile(f)]
         
@@ -101,8 +140,17 @@ class ArtifactFilter:
                         continue # Bỏ qua chunk này, nó chỉ là rác hệ thống
 
                 seen_hashes.add(chunk_hash)
-                all_chunks.append(chunk)
-                total_clean_bytes += len(chunk)
+
+                # Gán nhãn PII sau khi chunk đã qua bộ lọc chính
+                safe_chunk, has_sensitive = self._label_sensitive_info(
+                    text=chunk,
+                    chunk_index=len(all_chunks),
+                )
+                if has_sensitive:
+                    log.warning("Sensitive content detected in chunk %d", len(all_chunks))
+
+                all_chunks.append(safe_chunk)
+                total_clean_bytes += len(safe_chunk)
 
         log.info(f"Final reduction: {total_raw_bytes/1024:.1f}KB -> {total_clean_bytes/1024:.1f}KB")
         return all_chunks
@@ -188,8 +236,147 @@ class ArtifactFilter:
             except: pass
         return blocks
 
+    def _looks_like_dependency_or_asset_noise(self, text: str) -> bool:
+        lowered = text.lower()
+        noise_tokens = [
+            "elliptic@",
+            "node_modules",
+            "package.json",
+            "\"assets\"",
+            "\"layers\"",
+            "\"frame",
+            "\"stroke",
+            "\"ddd\"",
+            "\"ks\"",
+            "\"ind\"",
+            "\"ty\"",
+            "_integrity",
+            "_phantomchildren",
+            "_requested",
+        ]
+        return any(token in lowered for token in noise_tokens)
+
+    def _get_or_create_sensitive_label(self, pii_type: str, raw_value: str) -> str:
+        key = f"{pii_type}:{raw_value}"
+
+        if key in self._sensitive_value_to_label:
+            return self._sensitive_value_to_label[key]
+
+        self._sensitive_counters[pii_type] += 1
+        label = f"{pii_type}_{self._sensitive_counters[pii_type]:03d}"
+
+        self._sensitive_value_to_label[key] = label
+        self.sensitive_entities[label] = {
+            "type": pii_type,
+            "value": raw_value,
+            "value_hash": hashlib.sha256(raw_value.encode("utf-8")).hexdigest()[:16],
+        }
+
+        return label
+
+    def _label_sensitive_info(self, text: str, chunk_index: int) -> tuple[str, bool]:
+        if self._looks_like_dependency_or_asset_noise(text):
+            return text, False
+
+        patterns: list[tuple[str, re.Pattern[str]]] = [
+            ("EMAIL", _EMAIL_RE),
+            ("PHONE", _PHONE_RE),
+        ]
+
+        # CCCD dễ bị nhầm với ID/timestamp nên chỉ bắt khi có ngữ cảnh
+        if _CCCD_CONTEXT_RE.search(text):
+            patterns.append(("CCCD", _CCCD_RE))
+
+        raw_matches: list[dict] = []
+        for pii_type, pattern in patterns:
+            for m in pattern.finditer(text):
+                raw_matches.append({
+                    "type": pii_type,
+                    "start": m.start(),
+                    "end": m.end(),
+                    "value": m.group(0),
+                })
+
+        if not raw_matches:
+            return text, False
+
+        raw_matches.sort(key=lambda x: (x["start"], -(x["end"] - x["start"])))
+
+        selected_matches: list[dict] = []
+        last_end = -1
+        for item in raw_matches:
+            if item["start"] >= last_end:
+                selected_matches.append(item)
+                last_end = item["end"]
+
+        sanitized_parts: list[str] = []
+        report_matches: list[dict] = []
+        cursor = 0
+
+        for item in selected_matches:
+            pii_type = item["type"]
+            start = item["start"]
+            end = item["end"]
+            raw_value = item["value"]
+
+            label = self._get_or_create_sensitive_label(pii_type, raw_value)
+            placeholder = f"[{label}]"
+
+            sanitized_parts.append(text[cursor:start])
+            sanitized_parts.append(placeholder)
+            cursor = end
+
+            report_matches.append({
+                "type": pii_type,
+                "label": label,
+                "placeholder": placeholder,
+                "start": start,
+                "end": end,
+            })
+
+        sanitized_parts.append(text[cursor:])
+        sanitized_text = "".join(sanitized_parts)
+
+        self.sensitive_records.append({
+            "chunk_index": chunk_index,
+            "pii_types": sorted(set(m["type"] for m in report_matches)),
+            "pii_count": len(report_matches),
+            "sanitized_text": sanitized_text,
+            "matches": report_matches,
+        })
+
+        return sanitized_text, True
+
+    def _save_sensitive_outputs(self) -> tuple[str, str]:
+        report_path = os.path.join(self.cfg.output_dir, "sensitive_report.json")
+        entities_path = os.path.join(self.cfg.output_dir, "sensitive_entities.json")
+
+        report = {
+            "summary": {
+                "has_sensitive_content": len(self.sensitive_records) > 0,
+                "sensitive_chunk_count": len(self.sensitive_records),
+                "sensitive_entity_count": len(self.sensitive_entities),
+            },
+            "records": self.sensitive_records,
+        }
+
+        with open(report_path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, ensure_ascii=False, indent=2)
+
+        entities = {
+            "warning": "File này chứa thông tin nhạy cảm thật. Không đưa file này cho AI hoặc public report.",
+            "entities": self.sensitive_entities,
+        }
+
+        with open(entities_path, "w", encoding="utf-8") as fh:
+            json.dump(entities, fh, ensure_ascii=False, indent=2)
+
+        return report_path, entities_path
+
     def save_chunks(self, chunks: Sequence[str], output_file: str) -> str:
         output_path = os.path.join(self.cfg.output_dir, output_file)
         with open(output_path, "w", encoding="utf-8") as fh:
             fh.write("\n---CHUNK---\n".join(chunks))
+
+        self._save_sensitive_outputs()
         return output_path
